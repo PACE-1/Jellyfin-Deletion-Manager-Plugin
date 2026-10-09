@@ -1,0 +1,11 @@
+[
+  {
+    "guid": "f501435c-5b9d-4f2c-9556-12297eee46e7",
+    "name": "Jellyfin Deletion Manager",
+    "description": "Request, review, schedule and safely execute media deletions.",
+    "overview": "Users request deletion of movies, series, seasons and episodes; admins approve, deny or cancel from a dashboard.",
+    "owner": "PACE",
+    "category": "General",
+    "versions": []
+  }
+]

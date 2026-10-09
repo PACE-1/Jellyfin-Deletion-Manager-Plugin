@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Jellyfin Deletion Manager</title>
+</head>
+<body>
+<div id="DeletionManagerConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
+    <div data-role="content">
+        <div class="content-primary">
+            <h2>Jellyfin Deletion Manager</h2>
+            <form id="DeletionManagerConfigForm">
+                <label class="checkboxContainer">
+                    <input is="emby-checkbox" type="checkbox" id="DeletionExecutionEnabled" />
+                    <span>Enable physical deletion. Leave off until you have reviewed the request queue.</span>
+                </label>
+                <label class="checkboxContainer">
+                    <input is="emby-checkbox" type="checkbox" id="DeletionFavoriteProtectionEnabled" />
+                    <span>Protect items that any user has favorited.</span>
+                </label>
+                <div>
+                    <button is="emby-button" type="submit" class="raised button-submit block"><span>Save</span></button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <script type="text/javascript">
+        (function () {
+            var pluginId = 'f501435c-5b9d-4f2c-9556-12297eee46e7';
+            var page = document.querySelector('#DeletionManagerConfigPage');
+            var fields = ['DeletionExecutionEnabled', 'DeletionFavoriteProtectionEnabled'];
+            page.addEventListener('pageshow', function () {
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    fields.forEach(function (name) { page.querySelector('#' + name).checked = !!config[name]; });
+                    Dashboard.hideLoadingMsg();
+                });
+            });
+            page.querySelector('#DeletionManagerConfigForm').addEventListener('submit', function (event) {
+                event.preventDefault();
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    fields.forEach(function (name) { config[name] = page.querySelector('#' + name).checked; });
+                    ApiClient.updatePluginConfiguration(pluginId, config).then(Dashboard.processPluginConfigurationUpdateResult);
+                });
+            });
+        })();
+    </script>
+</div>
+</body>
+</html>
