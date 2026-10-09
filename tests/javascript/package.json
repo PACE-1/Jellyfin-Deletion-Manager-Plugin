@@ -2,5 +2,5 @@
   "name": "deletion-manager-ui-tests",
   "private": true,
   "scripts": { "test": "node --test *.test.cjs" },
-  "devDependencies": { "jsdom": "26.1.0" }
+  "devDependencies": { "jsdom": "30.1.2" }
 }
