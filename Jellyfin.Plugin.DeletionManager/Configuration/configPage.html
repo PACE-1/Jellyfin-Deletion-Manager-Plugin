@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Jellyfin Deletion Manager</title>
+</head>
+<body>
+<div id="DeletionManagerConfigPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-checkbox">
+    <div data-role="content">
+        <div class="content-primary">
+            <h2>Jellyfin Deletion Manager</h2>
+
+            <div id="DeletionManagerForkNotice" class="fieldDescription" role="alert" hidden style="border-left: .3em solid #ffb300; padding: .5em 1em; margin-bottom: 1em;">
+                The V1.0 Jellyfin Enhanced fork is still installed. It has its own deletion executor, so this plugin will not delete
+                anything while the fork is loaded. Import your requests below, check the queue, then uninstall the fork and restart Jellyfin.
+            </div>
+
+            <form id="DeletionManagerConfigForm">
+                <label class="checkboxContainer">
+                    <input is="emby-checkbox" type="checkbox" id="DeletionExecutionEnabled" />
+                    <span>Enable physical deletion. Leave off until you have reviewed the request queue.</span>
+                </label>
+                <div id="DeletionManagerDueNotice" class="fieldDescription" hidden style="margin: .25em 0 1em;"></div>
+                <label class="checkboxContainer">
+                    <input is="emby-checkbox" type="checkbox" id="DeletionFavoriteProtectionEnabled" />
+                    <span>Protect items that any user has favorited.</span>
+                </label>
+                <div>
+                    <button is="emby-button" type="submit" class="raised button-submit block"><span>Save</span></button>
+                </div>
+            </form>
+
+            <h3 style="margin-top: 2em;">Import from V1.0</h3>
+            <p class="fieldDescription">
+                Copies requests and history from the V1.0 fork's database into this plugin. The V1.0 database is never changed, and
+                importing again is safe: rows already imported are kept as they are, and a row that changed in the V1.0 database
+                afterwards is reported, not applied. Imported requests do not run until you enable physical deletion above.
+            </p>
+            <button is="emby-button" type="button" id="DeletionManagerImport" class="raised block"><span>Import requests from V1.0</span></button>
+            <div id="DeletionManagerImportResult" class="fieldDescription" role="status" style="margin-top: 1em; white-space: pre-line;"></div>
+        </div>
+    </div>
+    <script type="text/javascript">
+        (function () {
+            var pluginId = 'f501435c-5b9d-4f2c-9556-12297eee46e7';
+            var page = document.querySelector('#DeletionManagerConfigPage');
+            var fields = ['DeletionExecutionEnabled', 'DeletionFavoriteProtectionEnabled'];
+            var state = { forkLoaded: false, dueApproved: 0, executionWasEnabled: false };
+
+            function el(id) { return page.querySelector('#' + id); }
+
+            function dueText(count) {
+                return count + (count === 1 ? ' approved request is' : ' approved requests are')
+                    + ' already due and will run at the next scheduled run (every 15 minutes) once physical deletion is enabled.';
+            }
+
+            function applyStatus(status) {
+                state.forkLoaded = !!status.ForkExecutorLoaded;
+                state.dueApproved = status.DueApproved || 0;
+                el('DeletionManagerForkNotice').hidden = !state.forkLoaded;
+                var notice = el('DeletionManagerDueNotice');
+                notice.hidden = state.dueApproved === 0;
+                notice.textContent = state.dueApproved ? dueText(state.dueApproved) : '';
+            }
+
+            function loadStatus() {
+                return ApiClient.ajax({ type: 'GET', url: ApiClient.getUrl('DeletionManager/Config'), dataType: 'json' }).then(applyStatus);
+            }
+
+            page.addEventListener('pageshow', function () {
+                Dashboard.showLoadingMsg();
+                Promise.all([ApiClient.getPluginConfiguration(pluginId), loadStatus().catch(function () { /* advisory only */ })]).then(function (results) {
+                    var config = results[0];
+                    fields.forEach(function (name) { el(name).checked = !!config[name]; });
+                    state.executionWasEnabled = !!config.DeletionExecutionEnabled;
+                    Dashboard.hideLoadingMsg();
+                });
+            });
+
+            el('DeletionManagerConfigForm').addEventListener('submit', function (event) {
+                event.preventDefault();
+                var enabling = el('DeletionExecutionEnabled').checked && !state.executionWasEnabled;
+                if (enabling && state.forkLoaded) {
+                    Dashboard.alert('Uninstall the V1.0 fork and restart Jellyfin before enabling physical deletion here.');
+                    el('DeletionExecutionEnabled').checked = false;
+                    return;
+                }
+                if (enabling && state.dueApproved > 0 && !window.confirm(dueText(state.dueApproved) + '\n\nEnable physical deletion?')) {
+                    el('DeletionExecutionEnabled').checked = false;
+                    return;
+                }
+                Dashboard.showLoadingMsg();
+                ApiClient.getPluginConfiguration(pluginId).then(function (config) {
+                    fields.forEach(function (name) { config[name] = el(name).checked; });
+                    ApiClient.updatePluginConfiguration(pluginId, config).then(function (result) {
+                        state.executionWasEnabled = !!config.DeletionExecutionEnabled;
+                        Dashboard.processPluginConfigurationUpdateResult(result);
+                    });
+                });
+            });
+
+            el('DeletionManagerImport').addEventListener('click', function () {
+                var out = el('DeletionManagerImportResult');
+                out.textContent = 'Importing...';
+                ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('DeletionManager/Migration/import'), dataType: 'json' }).then(function (result) {
+                    var lines = ['Imported ' + result.requestsImported + ' requests and ' + result.auditImported + ' history entries.'];
+                    if (result.conflicts && result.conflicts.length) {
+                        lines.push('Changed in the V1.0 database since the last import and not applied: request ' + result.conflicts.join(', ') + '.');
+                    }
+                    if (result.dueApproved) lines.push(dueText(result.dueApproved));
+                    lines.push('Physical deletion is ' + (result.executionEnabled ? 'ON.' : 'off.'));
+                    out.textContent = lines.join('\n');
+                    return loadStatus().catch(function () { /* advisory only */ });
+                }, function (response) {
+                    var text = response && typeof response.text === 'function' ? response.text() : Promise.resolve('');
+                    text.then(function (body) {
+                        var message = '';
+                        try { message = JSON.parse(body).message || ''; } catch (e) { /* not JSON */ }
+                        if (response && response.status === 404) message = message || 'No V1.0 deletion database was found.';
+                        out.textContent = 'Import did not run (HTTP ' + (response && response.status) + '). ' + message;
+                    });
+                });
+            });
+        })();
+    </script>
+</div>
+</body>
+</html>
