@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.1.1.0",
+        "changelog": "First standalone release: runs on a vanilla Jellyfin 12.1 server with no companion plugin.",
+        "targetAbi": "12.1.0.0",
+        "sourceUrl": "https://github.com/PACE-1/Jellyfin-Deletion-Manager-Plugin/releases/download/v1.1.1.0/jellyfin-deletion-manager_1.1.1.0.zip",
+        "checksum": "736CD28501C9107009EE57D4F622BFD0",
+        "timestamp": "2026-10-10T17:09:01"
+      },
+      {
         "version": "1.1.0.0",
         "changelog": "First standalone release: runs on a vanilla Jellyfin 12.1 server with no companion plugin.",
         "targetAbi": "12.1.0.0",
