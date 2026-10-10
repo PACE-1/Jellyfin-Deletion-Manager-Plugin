@@ -33,6 +33,21 @@ const visibleEntry = page => page.evaluate(() => [...document.querySelectorAll('
   await page.waitForSelector('.jdm-request-button', { timeout: 20000 });
   await page.click('.jdm-request-button'); await page.waitForSelector('.jdm-modal');
   await page.waitForFunction(() => { const b = document.querySelector('.button-delete'); return b && !b.disabled; }, null, { timeout: 15000 });
+  // Geometry checks use the host's real theme CSS, which jsdom cannot lay out.
+  for (const width of [390, 1280, 1920]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForTimeout(150);
+    const geometry = await page.evaluate(() => {
+      const dialog = document.querySelector('.jdm-dialog');
+      const footer = dialog.querySelector('.jdm-modal-footer');
+      const box = e => { const r = e.getBoundingClientRect(); return { left: r.left, right: r.right, top: r.top, bottom: r.bottom }; };
+      return { viewport: innerWidth, dialog: box(dialog), footer: box(footer), buttons: [...footer.querySelectorAll('button')].map(box) };
+    });
+    const inside = r => r.left >= geometry.dialog.left - 1 && r.right <= geometry.dialog.right + 1 && r.right <= geometry.viewport + 1;
+    ok(`request dialog footer and buttons stay inside at ${width}px`, inside(geometry.footer) && geometry.buttons.every(inside), geometry);
+    if (width > 600) ok(`request dialog buttons share a row at ${width}px`, Math.abs(geometry.buttons[0].top - geometry.buttons[1].top) < 2, geometry);
+  }
+  await page.setViewportSize({ width: 1280, height: 900 });
   await page.click('.button-delete'); await page.waitForTimeout(2500);
   ok('admin request is approved at once and shows a countdown banner', (await page.locator('.jdm-countdown-banner').count()) === 1);
   await page.screenshot({ path: OUT + '/detail.png' });
@@ -72,7 +87,25 @@ const visibleEntry = page => page.evaluate(() => [...document.querySelectorAll('
   await page.setViewportSize({ width: 390, height: 844 }); await page.waitForTimeout(800);
   const o = await page.evaluate(() => ({ sw: document.documentElement.scrollWidth, iw: innerWidth }));
   ok('phone width: no horizontal overflow', o.sw <= o.iw + 1, o);
+  const cardGeometry = await page.evaluate(() => [...document.querySelectorAll('.jdm-card-footer')].map(footer => {
+    const option = footer.querySelector('.btnCardOptions').getBoundingClientRect();
+    return [...footer.querySelectorAll('.cardText')].every(line => {
+      const r = line.getBoundingClientRect();
+      return r.right <= option.left + 1 || r.top >= option.bottom || r.bottom <= option.top;
+    });
+  }));
+  ok('phone card text does not overlap options', cardGeometry.length > 0 && cardGeometry.every(Boolean), cardGeometry);
   await page.screenshot({ path: OUT + '/phone-dashboard.png' });
+  await page.evaluate(() => {
+    const body = document.createElement('div');
+    body.textContent = 'Synthetic' + 'x'.repeat(200);
+    window.__layoutModal = JellyfinDeletionManager.deletion.createModal({ title: 'Synthetic long title', subtitle: 'x'.repeat(200), body, secondaryText: 'Close' });
+    window.__layoutModal.show();
+  });
+  await page.waitForTimeout(150);
+  const longTitleFits = await page.evaluate(() => [...document.querySelectorAll('.jdm-dialog .dialogContentInner, .jdm-modal-subtitle')].every(e => e.scrollWidth <= e.clientWidth + 1));
+  ok('unbroken dialog body and subtitle fit the phone viewport', longTitleFits);
+  await page.evaluate(() => window.__layoutModal.close());
   ok('no page errors', errors.length === 0, errors);
   ok('no request to any /JellyfinEnhanced/ route', enhanced.length === 0, enhanced);
   require('fs').writeFileSync(OUT + '/ui-results.json', JSON.stringify(results, null, 1));

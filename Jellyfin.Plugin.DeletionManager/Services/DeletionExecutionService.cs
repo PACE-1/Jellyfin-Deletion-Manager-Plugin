@@ -64,7 +64,7 @@ public sealed class DeletionExecutionService
                 }
                 catch (Exception ex)
                 {
-                    _logger.Error($"[Deletion] Request {request.Id} was skipped: {ex.Message}");
+                    _logger.Error($"[Deletion] Request {request.Id} was skipped: {ex.GetType().Name}: {ex.Message}");
                 }
             }
         }
@@ -130,9 +130,17 @@ public sealed class DeletionExecutionService
             _store.MarkBlocked(request.Id, now, "The deletion scope changed during execution. Submit a new request.");
             return;
         }
+        guards = _guards.GetGuards(item);
+        if (guards.IsPlaying)
+        {
+            _store.Requeue(request.Id, now.Add(PlaybackRetryDelay), now, "An affected item started playing during execution.");
+            return;
+        }
+        configuration = _configuration();
+        if (configuration?.DeletionExecutionEnabled != true) return;
         if (guards.IsFavorite && configuration.DeletionFavoriteProtectionEnabled)
         {
-            _store.MarkBlocked(request.Id, now, "A user has marked an affected item as a favorite.");
+            _store.Requeue(request.Id, now.Add(PlaybackRetryDelay), now, "An affected item is favorited. Deletion will be retried while favorite protection is enabled.");
             return;
         }
 
@@ -146,12 +154,13 @@ public sealed class DeletionExecutionService
         }
         catch (Exception ex)
         {
-            _store.MarkFailed(request.Id, now, ex.Message);
-            _logger.Error($"[Deletion] Request {request.Id} failed: {ex.Message}");
+            _store.MarkFailed(request.Id, now, "Jellyfin could not delete the requested item. Check server storage and permissions.");
+            _logger.Error($"[Deletion] Request {request.Id} failed: {ex.GetType().Name}: {ex.Message}");
             return;
         }
 
         _store.MarkExecuted(request.Id, now);
+        _store.CompleteMatchingRequests(request, now);
         _logger.Info($"[Deletion] Executed request {request.Id} for item {request.JellyfinItemId}.");
     }
 }

@@ -104,6 +104,13 @@ def generate_media(server):
     server.exec('chown', '-R', f'{os.getuid()}:{os.getgid()}', '/media')
 
 
+    source = server.dir / 'media/Shows/Epsilon (2026)/Season 01/Epsilon (2026) S01E01.mp4'
+    large = server.dir / 'media/Shows/Large Synthetic (2026)/Season 01'
+    large.mkdir(parents=True, exist_ok=True)
+    for episode in range(1, 131):
+        shutil.copyfile(source, large / f'Large Synthetic (2026) S01E{episode:03}.mp4')
+
+
 def setup_server(server):
     api = server.api
     api('/Startup/Configuration', {'UICulture': 'en-US', 'MetadataCountryCode': 'US', 'PreferredMetadataLanguage': 'en'})
@@ -123,8 +130,19 @@ def setup_server(server):
     for _ in range(60):
         time.sleep(2)
         code, items = api('/Items?Recursive=true&IncludeItemTypes=Movie,Series&Fields=Path', None, token)
-        if code == 200 and len(items['Items']) >= 6:
+        if code == 200 and len(items['Items']) >= 7:
             break
+    # Seeing series roots does not mean their episodes have finished scanning.
+    # Do not restart the host to install the plugin while the fixture is half indexed.
+    for _ in range(90):
+        _, episodes = api('/Items?Recursive=true&IncludeItemTypes=Episode', None, token)
+        _, tasks = api('/ScheduledTasks', None, token)
+        scan_idle = all(task['State'] == 'Idle' for task in tasks if task['Key'] == 'RefreshLibrary')
+        if episodes and len(episodes.get('Items', [])) == 132 and scan_idle:
+            break
+        time.sleep(1)
+    else:
+        raise RuntimeError('Generated library did not finish scanning all 132 episodes')
     api('/Users/New', {'Name': 'viewer', 'Password': 'pw12345'}, token)
     return {i['Path'].split('/media/')[-1]: i['Id'] for i in items['Items']}
 
@@ -171,6 +189,16 @@ def check_api(server, ids):
     check('unknown item is 404', server.api(R, {'itemId': '1' * 32, 'itemType': 'movie'}, viewer)[0] == 404)
     check('type mismatch is 400', server.api(R, {'itemId': movie, 'itemType': 'series'}, viewer)[0] == 400)
     series = ids['Shows/Epsilon (2026)']
+    large = ids['Shows/Large Synthetic (2026)']
+    large_scope = None
+    for _ in range(30):
+        _, large_scope = server.api(R + '/scope?itemType=series&itemId=' + large, None, admin)
+        if isinstance(large_scope, dict) and large_scope.get('itemCount') == 130:
+            break
+        time.sleep(1)
+    check('large series scope counts all 130 real episodes', isinstance(large_scope, dict) and large_scope.get('itemCount') == 130, large_scope)
+    for action, body in [('approve', {'timing': '1w'}), ('deny', {}), ('cancel', {})]:
+        check('missing ' + action + ' request returns 404', server.api(R + '/999999/' + action, body, admin)[0] == 404)
     check('series without a confirmed count is 400', server.api(R, {'itemId': series, 'itemType': 'series'}, viewer)[0] == 400)
     check('series with a stale count is 409', server.api(R, {'itemId': series, 'itemType': 'series', 'expectedItemCount': 1, 'expectedItemIds': []}, viewer)[0] == 409)
     code, mine = server.api(R, {'itemId': movie, 'itemType': 'movie', 'reason': 'smoke'}, viewer)
@@ -180,6 +208,8 @@ def check_api(server, ids):
     check('viewer lists only their own requests', all(r['RequesterId'].replace('-', '') == viewer_id for r in listed))
     code, approved = server.api(R + f'/{mine["Id"]}/approve', {'timing': '1w'}, admin)
     check('approve schedules a week out', code == 200 and approved['Status'] == 'Approved' and approved['Timing'] == 'OneWeek', approved)
+    _, decision_audit = server.api(R + f'/{mine["Id"]}/audit', None, admin)
+    check('submission and approval are durably audited with actors', [row['Action'] for row in decision_audit] == ['submitted', 'approved'] and all(row.get('ActorId') for row in decision_audit), decision_audit)
     check('approve twice is 409', server.api(R + f'/{mine["Id"]}/approve', {'timing': '1w'}, admin)[0] == 409)
     _, cards = server.api(R + '/card-status', None, viewer)
     check('approved schedule is visible on cards', any(c['ItemId'].replace('-', '') == movie for c in cards), cards)
@@ -227,13 +257,16 @@ def check_execution(server, ids):
     plugin_config(server, admin, DeletionExecutionEnabled=True)
     run_task(server, admin)
     blocked = get_request(server, admin, req['Id'])
-    check('favorite guard blocks the deletion and keeps the file', server.exists(path('Charlie')) and blocked['Status'] == 'Blocked', blocked)
+    check('favorite guard requeues the deletion and keeps the file', server.exists(path('Charlie')) and blocked['Status'] == 'Approved' and blocked.get('FailureReason'), blocked)
     server.api(f'/Users/{viewer_id}/FavoriteItems/{ids["Movies/Charlie (2026)/Charlie (2026).mp4"]}', None, viewer, method='DELETE')
     code, req = server.api(R, {'itemId': ids['Movies/Delta (2026)/Delta (2026).mp4'], 'itemType': 'movie'}, admin)
     _, week = server.api(R, {'itemId': ids['Movies/Alpha (2026)/Alpha (2026).mp4'], 'itemType': 'movie'}, viewer)
     server.api(R + f'/{week["Id"]}/approve', {'timing': '1w'}, admin)
+    _, duplicate = server.api(R, {'itemId': ids['Movies/Delta (2026)/Delta (2026).mp4'], 'itemType': 'movie'}, viewer)
+    server.api(R + f'/{duplicate["Id"]}/approve', {'timing': 'immediate'}, admin)
     run_task(server, admin)
     done = get_request(server, admin, req['Id'])
+    check('duplicate approval records the confirmed deletion as executed', get_request(server, admin, duplicate['Id'])['Status'] == 'Executed')
     check('a week-out approval is not executed early', server.exists(path('Alpha')) and get_request(server, admin, week['Id'])['Status'] == 'Approved')
     check('execution deletes the generated file and records it', done['Status'] == 'Executed' and not server.exists(path('Delta')), done)
     time.sleep(3)
@@ -241,6 +274,13 @@ def check_execution(server, ids):
     check('the deleted movie leaves the Jellyfin library', ids['Movies/Delta (2026)/Delta (2026).mp4'] not in [i['Id'] for i in items['Items']], [i['Name'] for i in items['Items']])
     _, audit = server.api(R + f'/{req["Id"]}/audit', None, admin)
     check('the execution is audited', any(a['Action'] == 'executed' for a in audit), audit)
+    _, seasons = server.api('/Items?Recursive=true&IncludeItemTypes=Season&Fields=Path', None, admin)
+    season = next(i for i in seasons['Items'] if 'Epsilon' in i.get('Path', ''))
+    _, scope = server.api(R + '/scope?itemType=season&itemId=' + season['Id'], None, admin)
+    code, season_request = server.api(R, {'itemId': season['Id'], 'itemType': 'season', 'expectedItemCount': scope['itemCount'], 'expectedItemIds': scope['itemIds']}, admin)
+    check('season request confirms both generated episodes', code in (200, 201) and season_request['ItemCount'] == 2, season_request)
+    run_task(server, admin)
+    check('season deletion removes generated episode files and directory', get_request(server, admin, season_request['Id'])['Status'] == 'Executed' and not server.exists('/media/Shows/Epsilon (2026)/Season 01'))
     plugin_config(server, admin, DeletionExecutionEnabled=False)
 
 
@@ -286,6 +326,7 @@ def main():
     parser.add_argument('--image', default=os.environ.get('JELLYFIN_IMAGE', 'jellyfin/jellyfin:12.1'))
     parser.add_argument('--playwright-image', default=os.environ.get('PLAYWRIGHT_IMAGE', 'mcr.microsoft.com/playwright:v1.49.0-jammy'))
     parser.add_argument('--keep', action='store_true')
+    parser.add_argument('--skip-browser', action='store_true', help='run server checks only; inspect the kept fixture with a shared browser separately')
     parser.add_argument('--screenshots', help='copy the browser screenshots (for the README) into this directory')
     args = parser.parse_args()
     work = tempfile.mkdtemp(prefix='jdm-smoke-')
@@ -308,8 +349,8 @@ def main():
         server.begin()
         check_api(server, ids)
         check('the injected script tag appears once in /web/', urllib.request.urlopen(server.base + '/web/').read().decode().count('DeletionManager/script') == 1)
-        out = check_ui(server, ids, work, args.playwright_image)
-        if args.screenshots:
+        out = None if args.skip_browser else check_ui(server, ids, work, args.playwright_image)
+        if args.screenshots and out:
             Path(args.screenshots).mkdir(parents=True, exist_ok=True)
             for png in out.glob('*.png'):
                 shutil.copy(png, Path(args.screenshots) / png.name)
@@ -320,7 +361,11 @@ def main():
         errors = [l for l in server.logs().splitlines() if '[ERR]' in l and 'DeletionManager' in l and 'Access to the path' not in l]
         check('no plugin errors in the server log', not errors, errors[:3])
         if args.keep:
-            print('kept', work, server.name)
+            fixture = {'base': server.base, 'container': server.name, 'work': work, 'ids': ids}
+            fixture_path = Path(work) / 'fixture.json'
+            fixture_path.write_text(json.dumps(fixture))
+            fixture_path.chmod(0o600)
+            print('kept', work, server.name, server.base)
     finally:
         if not args.keep:
             server.remove()

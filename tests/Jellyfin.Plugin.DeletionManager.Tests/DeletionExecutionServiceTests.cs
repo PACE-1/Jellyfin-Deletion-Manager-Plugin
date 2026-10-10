@@ -57,14 +57,15 @@ public sealed class DeletionExecutionServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task FavoriteManualRequestIsBlockedAndNotDeleted()
+    public async Task FavoriteManualRequestIsRequeuedAndNotDeleted()
     {
         var request = CreateDue();
         _guards.Setup(guards => guards.GetGuards(It.IsAny<BaseItem>())).Returns(new DeletionGuardContext(false, true, true));
 
         await Service().ExecuteDueAsync(Now, CancellationToken.None);
 
-        Assert.Equal(DeletionRequestStatus.Blocked, _store.Get(request.Id)!.Status);
+        Assert.Equal(DeletionRequestStatus.Approved, _store.Get(request.Id)!.Status);
+        Assert.True(_store.Get(request.Id)!.ExecuteAt > Now);
         VerifyNothingDeleted();
     }
 
@@ -123,7 +124,58 @@ public sealed class DeletionExecutionServiceTests : IDisposable
 
         var stored = _store.Get(request.Id)!;
         Assert.Equal(DeletionRequestStatus.Failed, stored.Status);
-        Assert.Equal("disk gone", stored.FailureReason);
+        Assert.Equal("Jellyfin could not delete the requested item. Check server storage and permissions.", stored.FailureReason);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task GuardChangesAtTheFinalBoundaryPreventDeletion(bool playback)
+    {
+        var request = CreateDue();
+        _guards.SetupSequence(g => g.GetGuards(It.IsAny<BaseItem>()))
+            .Returns(new DeletionGuardContext(false, false, true))
+            .Returns(new DeletionGuardContext(playback, !playback, true));
+        await Service().ExecuteDueAsync(Now, CancellationToken.None);
+        Assert.Equal(DeletionRequestStatus.Approved, _store.Get(request.Id)!.Status);
+        Assert.True(_store.Get(request.Id)!.ExecuteAt > Now);
+        VerifyNothingDeleted();
+    }
+
+    [Fact]
+    public async Task RemovedFavoriteAllowsTheExistingApprovalToRunOnRetry()
+    {
+        var request = CreateDue();
+        _guards.Setup(g => g.GetGuards(It.IsAny<BaseItem>())).Returns(new DeletionGuardContext(false, true, true));
+        await Service().ExecuteDueAsync(Now, CancellationToken.None);
+        var next = _store.Get(request.Id)!.ExecuteAt!.Value;
+        _guards.Setup(g => g.GetGuards(It.IsAny<BaseItem>())).Returns(new DeletionGuardContext(false, false, true));
+        await Service().ExecuteDueAsync(next, CancellationToken.None);
+        Assert.Equal(DeletionRequestStatus.Executed, _store.Get(request.Id)!.Status);
+        _libraryManager.Verify(l => l.DeleteItem(It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DuplicateApprovalIsSatisfiedAfterOnePhysicalDeletion()
+    {
+        var first = CreateDue();
+        var duplicate = _store.Create(first with { Id = 0, RequesterId = Guid.NewGuid() });
+        _libraryManager.Setup(l => l.DeleteItem(It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()))
+            .Callback(() => _libraryManager.Setup(l => l.GetItemById(first.JellyfinItemId)).Returns((BaseItem?)null));
+        await Service().ExecuteDueAsync(Now, CancellationToken.None);
+        Assert.Equal(DeletionRequestStatus.Executed, _store.Get(first.Id)!.Status);
+        Assert.Equal(DeletionRequestStatus.Executed, _store.Get(duplicate.Id)!.Status);
+        _libraryManager.Verify(l => l.DeleteItem(It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task MissingItemWithoutConfirmedDeletionIsStillFailed()
+    {
+        var request = CreateDue();
+        _libraryManager.Setup(l => l.GetItemById(request.JellyfinItemId)).Returns((BaseItem?)null);
+        await Service().ExecuteDueAsync(Now, CancellationToken.None);
+        Assert.Equal(DeletionRequestStatus.Failed, _store.Get(request.Id)!.Status);
+        VerifyNothingDeleted();
     }
 
     public void Dispose()

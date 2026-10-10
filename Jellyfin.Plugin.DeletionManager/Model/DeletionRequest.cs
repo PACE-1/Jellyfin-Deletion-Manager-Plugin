@@ -51,6 +51,7 @@ public sealed record DeletionAuditEntry
     public long Id { get; init; }
     public long RequestId { get; init; }
     public string Action { get; init; } = string.Empty;
+    public Guid? ActorId { get; init; }
     public string? Reason { get; init; }
     public DateTimeOffset OccurredAt { get; init; }
 }

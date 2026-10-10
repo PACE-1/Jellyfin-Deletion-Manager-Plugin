@@ -43,7 +43,7 @@ public sealed class DeletionExecutionBoundary : IDeletionExecutor
         // Favorite protection applies to every request source, as the "Protect favorites" setting promises.
         if (guards.IsFavorite && guards.FavoriteProtectionEnabled)
         {
-            return new(DeletionExecutionDisposition.Blocked, "A user has marked this item as a favorite.");
+            return new(DeletionExecutionDisposition.Requeue, "An affected item is favorited. Deletion will be retried while favorite protection is enabled.");
         }
 
         return new(DeletionExecutionDisposition.Ready, "The request passed the execution boundary.");

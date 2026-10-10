@@ -92,7 +92,7 @@
         }
         .jdm-dialog-drawer { width: 44em; }
         .jdm-dialog .formDialogContent { overflow-y: auto; overscroll-behavior: contain; }
-        .jdm-dialog .dialogContentInner { padding-bottom: 1em; }
+        .jdm-dialog .dialogContentInner { padding-bottom: 1em; overflow-wrap: anywhere; min-width: 0; }
         .jdm-dialog .formDialogHeaderTitle { overflow-wrap: anywhere; }
         .jdm-modal-summary {
             display: flex;
@@ -111,8 +111,13 @@
         .jdm-modal-subtitle { color: var(--jdm-text-secondary); }
         .jdm-modal-error { color: var(--jdm-destructive); margin-top: 1em; }
         .jdm-modal-error:empty { display: none; }
-        .jdm-modal-footer { justify-content: flex-end; }
-        .jdm-modal-footer .formDialogFooterItem { flex-basis: auto; }
+        .jdm-modal-subtitle, .jdm-modal-summary { overflow-wrap: anywhere; min-width: 0; }
+        .jdm-modal-summary > div { min-width: 0; }
+        .jdm-modal-footer { display: flex; flex-wrap: wrap; gap: 0.5em; box-sizing: border-box; width: 100%; max-width: 100%; }
+        .jdm-modal-footer .formDialogFooterItem { flex: 1 1 8rem; width: auto; min-width: 0; max-width: 100%; margin: 0; white-space: normal; overflow-wrap: anywhere; }
+        @media (max-width: 600px) {
+            .jdm-modal-footer .formDialogFooterItem { flex-basis: 100%; }
+        }
 
         /* ---------- Episode picker (deletion-request.js) ---------- */
         .jdm-picker .emby-checkbox-label { width: 100%; }
@@ -333,7 +338,12 @@
             justify-content: center;
             background: var(--jdm-panel-bg);
         }
-        .jdm-card-footer .btnCardOptions { float: right; margin: 0; }
+        .jdm-card-footer { position: relative; padding-right: 2.75rem; box-sizing: border-box; }
+        .jdm-card-footer .btnCardOptions { position: absolute; right: 0; top: 0; margin: 0; }
+        .jdm-card-footer .cardText-secondary { white-space: normal; overflow-wrap: anywhere; }
+        @media (max-width: 600px) {
+            .jdm-dashboard .card { width: 50%; }
+        }
         .jdm-card-select {
             position: absolute;
             top: var(--jdm-space-xs);

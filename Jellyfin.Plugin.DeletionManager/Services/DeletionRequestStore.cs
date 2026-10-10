@@ -29,7 +29,7 @@ public sealed class DeletionRequestStore
         Initialize();
     }
 
-    public DeletionRequest Create(DeletionRequest request)
+    public DeletionRequest Create(DeletionRequest request, int maxActiveRequests = 100)
     {
         using var connection = Open();
         // An immediate writer transaction serializes submissions, including retries
@@ -53,6 +53,14 @@ public sealed class DeletionRequestStore
                 return saved;
             }
         }
+        using (var count = connection.CreateCommand())
+        {
+            count.Transaction = transaction;
+            count.CommandText = "SELECT COUNT(*) FROM deletion_requests WHERE requester_id = $user AND status IN ('pending', 'approved')";
+            count.Parameters.AddWithValue("$user", request.RequesterId.ToString("N"));
+            if ((long)count.ExecuteScalar()! >= maxActiveRequests)
+                throw new DeletionRequestLimitException("You have reached the active request limit. Wait for existing requests to finish before submitting more.");
+        }
         using var command = connection.CreateCommand();
         command.Transaction = transaction;
         command.CommandText = """
@@ -67,6 +75,9 @@ public sealed class DeletionRequestStore
             """;
         Bind(command, request);
         var id = (long)(command.ExecuteScalar() ?? throw new InvalidOperationException("Request insert returned no id."));
+        InsertAudit(connection, transaction, id, "submitted", null, request.CreatedAt, request.RequesterId);
+        if (request.Status == DeletionRequestStatus.Approved)
+            InsertAudit(connection, transaction, id, "approved", ScheduleReason(request.Timing, request.ExecuteAt), request.ApprovedAt ?? request.CreatedAt, request.ApprovedBy);
         transaction.Commit();
         return request with { Id = id };
     }
@@ -121,6 +132,38 @@ public sealed class DeletionRequestStore
         UpdateExecution(id, "executed", executedAt, null, null);
     }
 
+    // Close only requests for the same reviewed scope after a confirmed successful deletion.
+    // A missing library item alone is never proof that this plugin deleted it.
+    public void CompleteMatchingRequests(DeletionRequest executed, DateTimeOffset occurredAt)
+    {
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+        var ids = new List<long>();
+        using (var select = connection.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandText = "SELECT id FROM deletion_requests WHERE id <> $id AND jellyfin_item_id = $item AND scope_fingerprint IS $scope AND status IN ('pending', 'approved')";
+            select.Parameters.AddWithValue("$id", executed.Id);
+            select.Parameters.AddWithValue("$item", executed.JellyfinItemId.ToString("N"));
+            select.Parameters.AddWithValue("$scope", (object?)executed.ScopeFingerprint ?? DBNull.Value);
+            using var reader = select.ExecuteReader();
+            while (reader.Read()) ids.Add(reader.GetInt64(0));
+        }
+        const string reason = "The same reviewed item was deleted by another request.";
+        foreach (var id in ids)
+        {
+            using var update = connection.CreateCommand();
+            update.Transaction = transaction;
+            update.CommandText = "UPDATE deletion_requests SET status = 'executed', executed_at = $now, failure_reason = $reason WHERE id = $id";
+            update.Parameters.AddWithValue("$id", id);
+            update.Parameters.AddWithValue("$now", occurredAt.ToUniversalTime().ToString("O"));
+            update.Parameters.AddWithValue("$reason", reason);
+            update.ExecuteNonQuery();
+            InsertAudit(connection, transaction, id, "executed", reason, occurredAt);
+        }
+        transaction.Commit();
+    }
+
     public void MarkFailed(long id, DateTimeOffset failedAt, string reason)
     {
         UpdateExecution(id, "failed", failedAt, null, reason);
@@ -136,7 +179,7 @@ public sealed class DeletionRequestStore
         UpdateExecution(id, "requeued", occurredAt, nextAttemptAt, reason);
     }
 
-    public void Cancel(long id, DateTimeOffset occurredAt, string reason)
+    public void Cancel(long id, DateTimeOffset occurredAt, string reason, Guid? actorId = null)
     {
         using var connection = Open();
         using var transaction = connection.BeginTransaction();
@@ -155,7 +198,7 @@ public sealed class DeletionRequestStore
         command.Parameters.AddWithValue("$now", occurredAt.ToUniversalTime().ToString("O"));
         if (command.ExecuteNonQuery() != 1) throw new InvalidOperationException("Request is missing, not approved, already due, or already executed.");
 
-        InsertAudit(connection, transaction, id, "cancelled", reason, occurredAt);
+        InsertAudit(connection, transaction, id, "cancelled", reason, occurredAt, actorId);
         transaction.Commit();
     }
 
@@ -163,7 +206,7 @@ public sealed class DeletionRequestStore
     {
         using var connection = Open();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT id, request_id, action, reason, occurred_at FROM deletion_audit WHERE request_id = $request_id ORDER BY occurred_at ASC, id ASC";
+        command.CommandText = "SELECT id, request_id, action, reason, occurred_at, actor_id FROM deletion_audit WHERE request_id = $request_id ORDER BY occurred_at ASC, id ASC";
         command.Parameters.AddWithValue("$request_id", requestId);
         using var reader = command.ExecuteReader();
         var results = new List<DeletionAuditEntry>();
@@ -175,7 +218,8 @@ public sealed class DeletionRequestStore
                 RequestId = reader.GetInt64(1),
                 Action = reader.GetString(2),
                 Reason = reader.IsDBNull(3) ? null : reader.GetString(3),
-                OccurredAt = DateTimeOffset.Parse(reader.GetString(4))
+                OccurredAt = DateTimeOffset.Parse(reader.GetString(4)),
+                ActorId = reader.IsDBNull(5) ? null : Guid.Parse(reader.GetString(5))
             });
         }
 
@@ -185,7 +229,10 @@ public sealed class DeletionRequestStore
     private void UpdateDecision(long id, DeletionRequestStatus status, DeletionTiming? timing, Guid approverId, DateTimeOffset? executeAt, string? reason)
     {
         using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+        var now = DateTimeOffset.UtcNow;
         using var command = connection.CreateCommand();
+        command.Transaction = transaction;
         command.CommandText = """
             UPDATE deletion_requests
             SET status = $status, timing = $timing, approved_by = $approved_by,
@@ -195,12 +242,15 @@ public sealed class DeletionRequestStore
         command.Parameters.AddWithValue("$status", status.ToString().ToLowerInvariant());
         command.Parameters.AddWithValue("$timing", (object?)timing?.ToString().ToLowerInvariant() ?? DBNull.Value);
         command.Parameters.AddWithValue("$approved_by", approverId.ToString("N"));
-        command.Parameters.AddWithValue("$approved_at", DateTimeOffset.UtcNow.ToString("O"));
+        command.Parameters.AddWithValue("$approved_at", now.ToString("O"));
         command.Parameters.AddWithValue("$execute_at", (object?)executeAt?.ToString("O") ?? DBNull.Value);
         command.Parameters.AddWithValue("$failure_reason", (object?)reason ?? DBNull.Value);
         command.Parameters.AddWithValue("$id", id);
         command.Parameters.AddWithValue("$pending", DeletionRequestStatus.Pending.ToString().ToLowerInvariant());
         if (command.ExecuteNonQuery() != 1) throw new InvalidOperationException("Request is missing or is no longer pending.");
+        InsertAudit(connection, transaction, id, status.ToString().ToLowerInvariant(),
+            status == DeletionRequestStatus.Approved ? ScheduleReason(timing, executeAt) : reason, now, approverId);
+        transaction.Commit();
     }
 
     private void UpdateExecution(long id, string action, DateTimeOffset occurredAt, DateTimeOffset? nextAttemptAt, string? reason)
@@ -224,17 +274,21 @@ public sealed class DeletionRequestStore
         transaction.Commit();
     }
 
-    private static void InsertAudit(SqliteConnection connection, SqliteTransaction transaction, long id, string action, string? reason, DateTimeOffset occurredAt)
+    private static void InsertAudit(SqliteConnection connection, SqliteTransaction transaction, long id, string action, string? reason, DateTimeOffset occurredAt, Guid? actorId = null)
     {
         using var audit = connection.CreateCommand();
         audit.Transaction = transaction;
-        audit.CommandText = "INSERT INTO deletion_audit (request_id, action, reason, occurred_at) VALUES ($request_id, $action, $reason, $occurred_at)";
+        audit.CommandText = "INSERT INTO deletion_audit (request_id, action, reason, occurred_at, actor_id) VALUES ($request_id, $action, $reason, $occurred_at, $actor_id)";
         audit.Parameters.AddWithValue("$request_id", id);
         audit.Parameters.AddWithValue("$action", action);
         audit.Parameters.AddWithValue("$reason", (object?)reason ?? DBNull.Value);
         audit.Parameters.AddWithValue("$occurred_at", occurredAt.ToUniversalTime().ToString("O"));
+        audit.Parameters.AddWithValue("$actor_id", (object?)actorId?.ToString("N") ?? DBNull.Value);
         audit.ExecuteNonQuery();
     }
+
+    private static string? ScheduleReason(DeletionTiming? timing, DateTimeOffset? executeAt)
+        => timing.HasValue ? $"Timing: {timing}; scheduled for {executeAt:O}." : null;
 
     private static List<DeletionRequest> ReadAll(SqliteCommand command)
     {
@@ -336,10 +390,22 @@ public sealed class DeletionRequestStore
               action TEXT NOT NULL,
               reason TEXT NULL,
               occurred_at TEXT NOT NULL,
+              actor_id TEXT NULL,
               FOREIGN KEY(request_id) REFERENCES deletion_requests(id)
             );
             CREATE INDEX IF NOT EXISTS ix_deletion_audit_request ON deletion_audit(request_id, occurred_at);
             """;
         command.ExecuteNonQuery();
+
+        using (var check = connection.CreateCommand())
+        {
+            check.CommandText = "SELECT COUNT(*) FROM pragma_table_info('deletion_audit') WHERE name = 'actor_id'";
+            if ((long)check.ExecuteScalar()! == 0)
+            {
+                using var alter = connection.CreateCommand();
+                alter.CommandText = "ALTER TABLE deletion_audit ADD COLUMN actor_id TEXT NULL";
+                alter.ExecuteNonQuery();
+            }
+        }
     }
 }

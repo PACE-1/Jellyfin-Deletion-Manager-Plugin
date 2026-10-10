@@ -41,7 +41,7 @@ public sealed class DeletionRequestCancelStoreTests : IDisposable
         Assert.Equal(DeletionRequestStatus.Cancelled, cancelled!.Status);
         Assert.Equal("Cancelled by admin", cancelled.FailureReason);
         var audit = _store.ListAudit(request.Id);
-        Assert.Equal("cancelled", audit[^1].Action);
+        Assert.Single(audit, entry => entry.Action == "cancelled");
     }
 
     [Fact]
@@ -50,7 +50,7 @@ public sealed class DeletionRequestCancelStoreTests : IDisposable
         var request = _store.Create(NewRequest());
 
         Assert.Throws<InvalidOperationException>(() => _store.Cancel(request.Id, DateTimeOffset.UtcNow, "Cancelled by admin"));
-        Assert.Empty(_store.ListAudit(request.Id));
+        Assert.DoesNotContain(_store.ListAudit(request.Id), entry => entry.Action == "cancelled");
     }
 
     [Fact]
@@ -62,7 +62,7 @@ public sealed class DeletionRequestCancelStoreTests : IDisposable
         _store.Approve(request.Id, DeletionTiming.Immediate, approver, now.AddMonths(-1));
 
         Assert.Throws<InvalidOperationException>(() => _store.Cancel(request.Id, now, "Cancelled by admin"));
-        Assert.Empty(_store.ListAudit(request.Id));
+        Assert.DoesNotContain(_store.ListAudit(request.Id), entry => entry.Action == "cancelled");
     }
 
     [Fact]

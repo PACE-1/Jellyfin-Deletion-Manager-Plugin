@@ -93,8 +93,12 @@ public sealed class DeletionRequestController : ControllerBase
                 RequesterReason = trimmedReason,
                 ScopeFingerprint = scope.Fingerprint,
                 CreatedAt = now
-            });
+            }, isAdmin ? int.MaxValue : 100);
             return CreatedAtAction(nameof(Get), new { id = created.Id }, created);
+        }
+        catch (DeletionRequestLimitException ex)
+        {
+            return StatusCode(429, new { message = ex.Message });
         }
         catch (InvalidOperationException ex)
         {
@@ -219,6 +223,7 @@ public sealed class DeletionRequestController : ControllerBase
     /// <summary>Applies a store transition; a state-machine violation maps to 409.</summary>
     private ActionResult<DeletionRequest> Decide(long id, Action transition)
     {
+        if (_store.Get(id) is null) return NotFound(new { message = "Deletion request was not found." });
         try
         {
             transition();
@@ -303,7 +308,7 @@ public sealed class DeletionRequestController : ControllerBase
 
         var auditReason = "Cancelled by " + adminName;
         if (trimmedReason is not null) auditReason += ": " + trimmedReason;
-        return Decide(id, () => _store.Cancel(id, DateTimeOffset.UtcNow, auditReason));
+        return Decide(id, () => _store.Cancel(id, DateTimeOffset.UtcNow, auditReason, adminId));
     }
 
     private bool TryGetCurrentUser(out Guid userId, out string userName)

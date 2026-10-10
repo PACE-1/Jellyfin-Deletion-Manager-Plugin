@@ -117,9 +117,9 @@ public sealed class DeletionRequestStoreTests : IDisposable
         _store.MarkFailed(failed.Id, now, "permission denied");
         _store.Requeue(requeued.Id, now.AddMinutes(15), now, "currently playing");
 
-        Assert.Equal("executed", Assert.Single(_store.ListAudit(executed.Id)).Action);
-        Assert.Equal("failed", Assert.Single(_store.ListAudit(failed.Id)).Action);
-        var requeueAudit = Assert.Single(_store.ListAudit(requeued.Id));
+        Assert.Equal("executed", Assert.Single(_store.ListAudit(executed.Id), entry => entry.Action == "executed").Action);
+        Assert.Equal("failed", Assert.Single(_store.ListAudit(failed.Id), entry => entry.Action == "failed").Action);
+        var requeueAudit = Assert.Single(_store.ListAudit(requeued.Id), entry => entry.Action == "requeued");
         Assert.Equal("requeued", requeueAudit.Action);
         Assert.Equal("currently playing", requeueAudit.Reason);
         Assert.Equal(DeletionRequestStatus.Approved, _store.Get(requeued.Id)!.Status);
@@ -153,7 +153,7 @@ public sealed class DeletionRequestStoreTests : IDisposable
         Assert.NotNull(blocked);
         Assert.Equal(DeletionRequestStatus.Blocked, blocked!.Status);
         Assert.Equal("favorite", blocked.FailureReason);
-        var audit = Assert.Single(_store.ListAudit(request.Id));
+        var audit = Assert.Single(_store.ListAudit(request.Id), entry => entry.Action == "blocked");
         Assert.Equal("blocked", audit.Action);
 
         Assert.Throws<InvalidOperationException>(() => _store.MarkBlocked(request.Id, now, "favorite"));

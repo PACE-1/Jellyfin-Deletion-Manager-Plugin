@@ -146,6 +146,34 @@ public sealed class DeletionRequestReasonAuditTests : IDisposable
         Assert.IsType<NotFoundResult>(result.Result);
     }
 
+    [Theory]
+    [InlineData("approve")]
+    [InlineData("deny")]
+    [InlineData("cancel")]
+    public void MissingDecisionReturns404(string action)
+    {
+        var controller = CreateController(_adminId);
+        var result = action switch
+        {
+            "approve" => controller.Approve(99999, new DecisionRequest { Timing = "1w" }),
+            "deny" => controller.Deny(99999, new DecisionRequest()),
+            _ => controller.Cancel(99999, null)
+        };
+        Assert.IsType<NotFoundObjectResult>(result.Result);
+    }
+
+    [Fact]
+    public void SubmitReturns429WhenOrdinaryUserQuotaIsFull()
+    {
+        for (var i = 0; i < 100; i++) _store.Create(NewRequest(_requesterId));
+        var item = new Movie { Id = Guid.NewGuid(), Name = "Synthetic movie" };
+        _libraryManager.Setup(m => m.GetItemById(item.Id)).Returns(item);
+        _libraryManager.Setup(m => m.GetItemIds(It.IsAny<InternalItemsQuery>())).Returns(new[] { item.Id });
+        var response = CreateController(_requesterId).Submit(new SubmitDeletionRequest { ItemId = item.Id.ToString(), ItemType = "movie" });
+        Assert.Equal(429, Assert.IsType<ObjectResult>(response.Result).StatusCode);
+        Assert.Equal(100, _store.List(_requesterId).Count);
+    }
+
     private DeletionRequestController CreateController(Guid userId)
     {
         var controller = new DeletionRequestController(_store, _userManager.Object, _libraryManager.Object);

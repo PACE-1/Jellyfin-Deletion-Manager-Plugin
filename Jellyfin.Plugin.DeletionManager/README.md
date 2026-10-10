@@ -5,7 +5,7 @@ A Jellyfin plugin for requesting, reviewing, scheduling and safely running media
 - **Request:** a "Request Deletion" button on movie, series, season and episode pages and in the item menu, with an exact item count and an optional reason.
 - **Review:** a "Deletion Requests" dashboard (My Requests, Pending, Approved, History) with search, filters, bulk approve and deny, and a per-request timeline.
 - **Schedule:** approve for now, 1 week, 2 weeks or 1 month. Approved requests can be cancelled until they run. Approved media shows a countdown on its native library cards for everyone with access to it.
-- **Safety:** physical deletion is **off by default**. When on, items that any user has favorited or that are playing are never deleted, and a request is re-checked against the current library contents before it runs.
+- **Safety:** physical deletion is **off by default**. When on, items that any user has favorited or that are playing wait and retry every 15 minutes while protected, and a request is re-checked against the current library contents before it runs.
 
 ## Requirements
 
@@ -47,3 +47,5 @@ The smoke test starts a clean Jellyfin container with generated media and runs t
 ## Licence
 
 Free and open source under GPL-3.0. Some code is adapted from Jellyfin Enhanced; see `NOTICE.md`.
+
+Ordinary users can have up to 100 active requests. Identical submission retries reuse the saved request; finished requests free a slot. Administrators are exempt.

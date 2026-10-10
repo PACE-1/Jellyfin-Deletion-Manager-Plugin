@@ -26,7 +26,7 @@ Jellyfin **12.1** (.NET 10). Jellyfin 10.11 is not supported; the plugin will no
 **From the plugin catalog.** In Jellyfin: Dashboard, Plugins, Repositories, add
 
 ```
-https://raw.githubusercontent.com/PACE-1/Jellyfin-Deletion-Manager-Plugin/main/manifest.json
+https://github.com/PACE-1/Jellyfin-Deletion-Manager-Plugin/releases/latest/download/manifest.json
 ```
 
 then install "Jellyfin Deletion Manager" from the catalog and restart Jellyfin.
@@ -58,3 +58,7 @@ Free and open source under GPL-3.0, see [LICENSE](LICENSE). The project asks for
 You are free to fork, change and redistribute it. The licence asks for credit: keep [NOTICE.md](NOTICE.md) and the copyright lines, say what you changed, and share your version under the same licence with its source. If you publish a fork, please link back to this repository.
 
 Some code is adapted from [Jellyfin Enhanced](https://github.com/n00bcodr/Jellyfin-Enhanced) by n00bcodr and its contributors (GPL-3.0); see [NOTICE.md](NOTICE.md). Thank you to that project.
+
+Ordinary users can have up to 100 active requests. Identical submission retries reuse the saved request; finished requests free a slot. Administrators are exempt.
+
+See [publication and runtime privacy](docs/PRIVACY.md) for the privacy boundary and checks.

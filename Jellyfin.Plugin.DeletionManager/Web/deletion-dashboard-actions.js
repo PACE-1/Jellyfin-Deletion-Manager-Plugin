@@ -449,17 +449,17 @@
         /** @type {Array<{label: string, at: string, reason: string|null, order: number}>} */
         const events = [];
         let order = 0;
-        events.push({ label: `Requested by ${request.RequesterName || 'unknown'}`, at: request.CreatedAt, reason: null, order: order++ });
-        if (request.Status === 'Denied') {
+        if (!auditRows.some(row => String(row && row.Action).toLowerCase() === 'submitted')) events.push({ label: `Requested by ${request.RequesterName || 'unknown'}`, at: request.CreatedAt, reason: null, order: order++ });
+        if (request.Status === 'Denied' && !auditRows.some(row => String(row && row.Action).toLowerCase() === 'denied')) {
             if (request.ApprovedAt) events.push({ label: 'Denied', at: request.ApprovedAt, reason: null, order: order++ });
-        } else if (request.ApprovedAt) {
+        } else if (request.Status !== 'Denied' && request.ApprovedAt && !auditRows.some(row => String(row && row.Action).toLowerCase() === 'approved')) {
             const timing = D.timingLabel(request.Timing);
             events.push({ label: timing ? `Approved · ${timing}` : 'Approved', at: request.ApprovedAt, reason: null, order: order++ });
         }
         auditRows.forEach(row => {
             if (!row) return;
             const action = String(row.Action || '');
-            const label = AUDIT_LABELS[action.toLowerCase()] || action;
+            const label = action.toLowerCase() === 'submitted' ? `Requested by ${request.RequesterName || 'unknown'}` : action.toLowerCase() === 'approved' ? 'Approved' : action.toLowerCase() === 'denied' ? 'Denied' : AUDIT_LABELS[action.toLowerCase()] || action;
             events.push({ label, at: row.OccurredAt, reason: row.Reason || null, order: order++ });
         });
 

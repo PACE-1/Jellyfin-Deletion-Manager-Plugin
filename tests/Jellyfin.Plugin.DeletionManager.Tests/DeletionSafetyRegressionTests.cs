@@ -187,8 +187,8 @@ public sealed class DeletionSafetyRegressionTests : IDisposable
         await Service(new DeletionGuardProvider(_sessions.Object, _users.Object, _userData.Object, _logger, _library.Object))
             .ExecuteDueAsync(_now, CancellationToken.None);
         var saved = _store.Get(request.Id)!;
-        Assert.Equal(favorite ? DeletionRequestStatus.Blocked : DeletionRequestStatus.Approved, saved.Status);
-        if (!favorite) Assert.True(saved.ExecuteAt > _now);
+        Assert.Equal(DeletionRequestStatus.Approved, saved.Status);
+        Assert.True(saved.ExecuteAt > _now);
         _library.Verify(value => value.DeleteItem(It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()), Times.Never);
     }
 

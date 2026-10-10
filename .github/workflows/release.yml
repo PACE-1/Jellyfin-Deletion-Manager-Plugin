@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
+  actions: write
 
 jobs:
   release:
@@ -31,8 +33,15 @@ jobs:
           npm ci --prefix tests/javascript --ignore-scripts
           npm test --prefix tests/javascript
 
+      - name: Publication privacy and catalog checks
+        run: |
+          python3 -m unittest discover -s tests/scripts -v
+          python3 scripts/audit-publication.py .
+
       - name: Package
-        run: python3 scripts/package-deletion-manager.py --no-docker --repo "$GITHUB_REPOSITORY" --merge-into manifest.json
+        run: |
+          python3 scripts/package-deletion-manager.py --no-docker --repo "$GITHUB_REPOSITORY" --merge-into manifest.json
+          python3 scripts/audit-publication.py dist
 
       - name: Publish the release
         env:
@@ -41,16 +50,26 @@ jobs:
           gh release create "$GITHUB_REF_NAME" dist/*.zip dist/SHA256SUMS dist/manifest.json \
             --title "Jellyfin Deletion Manager $GITHUB_REF_NAME" --generate-notes
 
-      - name: List the new version in the catalog
-        # The catalog URL points at manifest.json on main. If main is protected, open a pull request with
-        # dist/manifest.json from the release assets instead (see docs/RELEASING.md).
+      - name: Propose the catalog update
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          cp dist/manifest.json /tmp/manifest.json
+          cp dist/manifest.json /tmp/release-manifest.json
           git fetch origin main
-          git checkout -f main
-          cp /tmp/manifest.json manifest.json
+          git checkout -B "catalog/$GITHUB_REF_NAME" origin/main
+          python3 scripts/merge-catalog.py manifest.json /tmp/release-manifest.json
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add manifest.json
-          git commit -m "Catalog: add $GITHUB_REF_NAME" || exit 0
-          git push origin main
+          git diff --cached --quiet && exit 0
+          git commit -m "Catalog: add $GITHUB_REF_NAME"
+          git push origin "catalog/$GITHUB_REF_NAME"
+          printf 'Adds the verified catalog entry for %s. Merge after the required checks pass.\n' "$GITHUB_REF_NAME" > /tmp/catalog-pr.md
+          if gh pr create --base main --head "catalog/$GITHUB_REF_NAME" \
+              --title "Catalog: add $GITHUB_REF_NAME" --body-file /tmp/catalog-pr.md; then
+            # PRs created with GITHUB_TOKEN do not trigger pull_request workflows.
+            # Dispatch the required checks explicitly on the catalog branch.
+            gh workflow run tests.yml --ref "catalog/$GITHUB_REF_NAME"
+          else
+            echo "::warning::Could not open the catalog pull request (enable Settings, Actions, General, Allow GitHub Actions to create pull requests). The release is published and its catalog is available at releases/latest/download/manifest.json."
+          fi

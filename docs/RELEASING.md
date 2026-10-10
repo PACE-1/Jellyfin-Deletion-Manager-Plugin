@@ -10,7 +10,7 @@
 
    This writes `dist/jellyfin-deletion-manager_<version>.zip`, `dist/SHA256SUMS` and `dist/manifest.json`. The build is reproducible: the same source gives the same zip.
 4. Merge to `main`, then push a tag that matches the version: `git tag v1.1.1.0 && git push origin v1.1.1.0`.
-5. The **Release** workflow checks the tag against the project version, runs the tests, builds the zip, publishes a GitHub release with the zip, `SHA256SUMS` and `manifest.json`, and adds the new version to `manifest.json` on `main`. If `main` is protected, that last step fails: open a pull request that replaces `manifest.json` with the one attached to the release.
+5. The **Release** workflow checks the tag against the project version, runs the tests, builds the zip, publishes a GitHub release with the zip, `SHA256SUMS` and `manifest.json`, and opens a pull request to add the new version to `manifest.json`. The catalog URL in the README (`.../releases/latest/download/manifest.json`) serves the newest release's `manifest.json` straight away, so users do not wait for that pull request; merging it keeps `manifest.json` on `main` in step. In Settings → Actions → General, enable “Allow GitHub Actions to create and approve pull requests.” If repository policy disables this, apply the release’s catalog entry through a normal pull request.
 6. On a clean Jellyfin 12.1 instance, add the catalog URL, install the plugin from the catalog, restart, and check that the plugin is Active and the dashboard loads.
 
 The catalog entry's `targetAbi` is `12.1.0.0`: the plugin is validated on Jellyfin 12.1 only. Raise or add targets only after running the smoke test on that Jellyfin version.

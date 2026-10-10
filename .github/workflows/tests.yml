@@ -25,6 +25,11 @@ jobs:
       - name: Backend tests
         run: dotnet test tests/Jellyfin.Plugin.DeletionManager.Tests --configuration Release
 
+      - name: Publication privacy and catalog checks
+        run: |
+          python3 -m unittest discover -s tests/scripts -v
+          python3 scripts/audit-publication.py .
+
       - name: Build the plugin
         run: dotnet build Jellyfin.Plugin.DeletionManager/DeletionManager.csproj --configuration Release
 
