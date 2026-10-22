@@ -28,9 +28,11 @@ public sealed class DeletionRequestController : ControllerBase
     private readonly DeletionRequestStore _store;
     private readonly IUserManager _userManager;
     private readonly ILibraryManager _libraryManager;
+    private readonly PosterArchive? _posters;
 
-    public DeletionRequestController(DeletionRequestStore store, IUserManager userManager, ILibraryManager libraryManager)
+    public DeletionRequestController(DeletionRequestStore store, IUserManager userManager, ILibraryManager libraryManager, PosterArchive? posters = null)
     {
+        _posters = posters;
         _store = store;
         _userManager = userManager;
         _libraryManager = libraryManager;
@@ -169,6 +171,17 @@ public sealed class DeletionRequestController : ControllerBase
     public ActionResult<IReadOnlyList<DeletionAuditEntry>> Audit(long id)
     {
         return CheckReadAccess(id, out _) ?? Ok(_store.ListAudit(id));
+    }
+
+    /// <summary>Poster kept when the item was deleted, since Jellyfin no longer has it.</summary>
+    [HttpGet("{id:long}/poster")]
+    public ActionResult Poster(long id)
+    {
+        var denied = CheckReadAccess(id, out _);
+        if (denied is not null) return denied;
+        var path = _posters?.TryGetPath(id);
+        if (path is null) return NotFound();
+        return PhysicalFile(path, new Microsoft.AspNetCore.StaticFiles.FileExtensionContentTypeProvider().TryGetContentType(path, out var type) ? type : "application/octet-stream");
     }
 
     /// <summary>Requester-or-admin guard for reads. Returns null when allowed.</summary>

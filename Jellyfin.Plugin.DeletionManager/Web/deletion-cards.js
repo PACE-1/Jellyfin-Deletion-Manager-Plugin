@@ -58,17 +58,11 @@
             icon.setAttribute('aria-hidden', 'true');
             posterButton.appendChild(icon);
         };
-        const posterUrl = D.posterUrl(request.JellyfinItemId, 400);
-        if (posterUrl) {
-            posterButton.style.backgroundImage = `url("${posterUrl}")`;
-            // Executed items no longer have images: swap to the fallback icon
-            // instead of leaving a broken background-image.
-            const preload = new Image();
-            preload.onerror = showFallbackIcon;
-            preload.src = posterUrl;
-        } else {
-            showFallbackIcon();
-        }
+        // Executed items are gone from Jellyfin, so fall back to the poster kept at deletion time.
+        D.loadFirstImage(
+            [D.posterUrl(request.JellyfinItemId, 400), D.archivedPosterUrl(request.Id)],
+            (url) => { posterButton.style.backgroundImage = `url("${url}")`; },
+            showFallbackIcon);
 
         const indicators = document.createElement('div');
         indicators.className = 'cardIndicators';

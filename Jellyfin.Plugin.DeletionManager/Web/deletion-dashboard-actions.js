@@ -385,9 +385,11 @@
 
         if (request.JellyfinItemId) {
             const img = document.createElement('img');
-            img.src = D.posterUrl(request.JellyfinItemId, 300);
             img.alt = request.ItemName || '';
-            img.addEventListener('error', () => { img.style.display = 'none'; });
+            D.loadFirstImage(
+                [D.posterUrl(request.JellyfinItemId, 300), D.archivedPosterUrl(request.Id)],
+                (url) => { img.src = url; },
+                () => { img.style.display = 'none'; });
             header.appendChild(img);
         }
 

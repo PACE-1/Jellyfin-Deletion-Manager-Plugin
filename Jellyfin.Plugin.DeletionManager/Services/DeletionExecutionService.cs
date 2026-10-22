@@ -16,6 +16,7 @@ public sealed class DeletionExecutionService
     private readonly DeletionRequestStore _store;
     private readonly ILibraryManager _libraryManager;
     private readonly IArrUnmonitorService _arr;
+    private readonly PosterArchive? _posters;
     private readonly Logger _logger;
     private readonly Func<PluginConfiguration?> _configuration;
     private readonly SemaphoreSlim _executionLock = new(1, 1);
@@ -27,8 +28,9 @@ public sealed class DeletionExecutionService
         DeletionRequestStore store,
         ILibraryManager libraryManager,
         IArrUnmonitorService arr,
+        PosterArchive posters,
         Logger logger)
-        : this(dispatcher, boundary, guards, store, libraryManager, logger, () => Plugin.Instance?.Configuration, arr)
+        : this(dispatcher, boundary, guards, store, libraryManager, logger, () => Plugin.Instance?.Configuration, arr, posters)
     {
     }
 
@@ -40,9 +42,11 @@ public sealed class DeletionExecutionService
         ILibraryManager libraryManager,
         Logger logger,
         Func<PluginConfiguration?> configuration,
-        IArrUnmonitorService? arr = null)
+        IArrUnmonitorService? arr = null,
+        PosterArchive? posters = null)
     {
         _arr = arr ?? NoArrUnmonitorService.Instance;
+        _posters = posters;
         _configuration = configuration;
         _dispatcher = dispatcher;
         _boundary = boundary;
@@ -168,6 +172,9 @@ public sealed class DeletionExecutionService
             _logger.Error($"[Deletion] Request {request.Id} not deleted, unmonitor failed: {ex.GetType().Name}: {ex.Message}");
             return;
         }
+
+        // The item and its images are gone after DeleteItem, so keep the poster first.
+        _posters?.Save(request.Id, item);
 
         try
         {

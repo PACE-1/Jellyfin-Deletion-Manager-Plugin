@@ -18,6 +18,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IDeletionDueRequestDispatcher, DeletionDueRequestDispatcher>();
         serviceCollection.AddSingleton<IDeletionGuardProvider, DeletionGuardProvider>();
         serviceCollection.AddSingleton<IArrUnmonitorService, ArrUnmonitorService>();
+        serviceCollection.AddSingleton<PosterArchive>();
         serviceCollection.AddSingleton<DeletionExecutionService>();
         serviceCollection.AddTransient<DeletionExecutionTask>();
         serviceCollection.AddTransient<IScheduledTask, DeletionExecutionTask>();

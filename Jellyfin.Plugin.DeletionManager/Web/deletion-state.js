@@ -289,6 +289,23 @@
         return ApiClient.getImageUrl(jellyfinItemId, { type: 'Primary', maxWidth });
     }
 
+    // Copy kept when the item was deleted. Images cannot send auth headers, so the token goes in the query.
+    function archivedPosterUrl(requestId) {
+        const token = ApiClient.accessToken();
+        if (!requestId || !token) return null;
+        return `${ApiClient.getUrl(`DeletionManager/Requests/${requestId}/poster`)}?api_key=${encodeURIComponent(token)}`;
+    }
+
+    // Tries each URL in order and calls onFound with the first that loads, or onNone when all fail.
+    function loadFirstImage(urls, onFound, onNone) {
+        const [url, ...rest] = urls.filter(Boolean);
+        if (!url) { onNone(); return; }
+        const probe = new Image();
+        probe.onload = () => onFound(url);
+        probe.onerror = () => loadFirstImage(rest, onFound, onNone);
+        probe.src = url;
+    }
+
     // ============================================================
     // Error message
     // ============================================================
@@ -370,6 +387,8 @@
         formatExact,
         formatAgo,
         posterUrl,
+        archivedPosterUrl,
+        loadFirstImage,
         errorMessage,
         makeText,
         stateCard,
