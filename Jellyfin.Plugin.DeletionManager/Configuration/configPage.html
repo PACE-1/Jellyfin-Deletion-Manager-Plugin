@@ -18,6 +18,19 @@
                     <input is="emby-checkbox" type="checkbox" id="DeletionFavoriteProtectionEnabled" />
                     <span>Protect items that any user has favorited.</span>
                 </label>
+                <p>Optional. Before deleting, unmonitor the media in Sonarr/Radarr so it is not downloaded again. The series or movie stays in Sonarr/Radarr. Leave blank to skip.</p>
+                <div class="inputContainer">
+                    <input is="emby-input" type="url" id="SonarrUrl" label="Sonarr URL (e.g. http://sonarr:8989)" />
+                </div>
+                <div class="inputContainer">
+                    <input is="emby-input" type="password" id="SonarrApiKey" label="Sonarr API key" autocomplete="off" />
+                </div>
+                <div class="inputContainer">
+                    <input is="emby-input" type="url" id="RadarrUrl" label="Radarr URL (e.g. http://radarr:7878)" />
+                </div>
+                <div class="inputContainer">
+                    <input is="emby-input" type="password" id="RadarrApiKey" label="Radarr API key" autocomplete="off" />
+                </div>
                 <div>
                     <button is="emby-button" type="submit" class="raised button-submit block"><span>Save</span></button>
                 </div>
@@ -29,10 +42,12 @@
             var pluginId = 'f501435c-5b9d-4f2c-9556-12297eee46e7';
             var page = document.querySelector('#DeletionManagerConfigPage');
             var fields = ['DeletionExecutionEnabled', 'DeletionFavoriteProtectionEnabled'];
+            var textFields = ['SonarrUrl', 'SonarrApiKey', 'RadarrUrl', 'RadarrApiKey'];
             page.addEventListener('pageshow', function () {
                 Dashboard.showLoadingMsg();
                 ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                     fields.forEach(function (name) { page.querySelector('#' + name).checked = !!config[name]; });
+                    textFields.forEach(function (name) { page.querySelector('#' + name).value = config[name] || ''; });
                     Dashboard.hideLoadingMsg();
                 });
             });
@@ -41,6 +56,7 @@
                 Dashboard.showLoadingMsg();
                 ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                     fields.forEach(function (name) { config[name] = page.querySelector('#' + name).checked; });
+                    textFields.forEach(function (name) { config[name] = page.querySelector('#' + name).value.trim(); });
                     ApiClient.updatePluginConfiguration(pluginId, config).then(Dashboard.processPluginConfigurationUpdateResult);
                 });
             });

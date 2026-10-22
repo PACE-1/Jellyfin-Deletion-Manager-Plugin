@@ -178,19 +178,49 @@ public sealed class DeletionExecutionServiceTests : IDisposable
         VerifyNothingDeleted();
     }
 
+    [Fact]
+    public async Task ArrFailureHoldsDeletionAndRequeuesRequest()
+    {
+        var request = CreateDue();
+        var arr = new Mock<IArrUnmonitorService>();
+        arr.Setup(a => a.UnmonitorAsync(It.IsAny<BaseItem>(), It.IsAny<DeletionScope>(), It.IsAny<PluginConfiguration>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new HttpRequestException("down"));
+
+        await Service(arr.Object).ExecuteDueAsync(Now, CancellationToken.None);
+
+        Assert.Equal(DeletionRequestStatus.Approved, _store.Get(request.Id)!.Status);
+        VerifyNothingDeleted();
+    }
+
+    [Fact]
+    public async Task ArrIsUnmonitoredBeforeFilesAreDeleted()
+    {
+        var request = CreateDue();
+        var order = new List<string>();
+        var arr = new Mock<IArrUnmonitorService>();
+        arr.Setup(a => a.UnmonitorAsync(It.IsAny<BaseItem>(), It.IsAny<DeletionScope>(), It.IsAny<PluginConfiguration>(), It.IsAny<CancellationToken>()))
+            .Callback(() => order.Add("arr")).Returns(Task.CompletedTask);
+        _libraryManager.Setup(l => l.DeleteItem(It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>())).Callback(() => order.Add("delete"));
+
+        await Service(arr.Object).ExecuteDueAsync(Now, CancellationToken.None);
+
+        Assert.Equal(new[] { "arr", "delete" }, order);
+        Assert.Equal(DeletionRequestStatus.Executed, _store.Get(request.Id)!.Status);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_dataPath)) Directory.Delete(_dataPath, recursive: true);
     }
 
-    private DeletionExecutionService Service()
+    private DeletionExecutionService Service(IArrUnmonitorService? arr = null)
     {
         if (!_dispatcher.Setups.Any())
         {
             _dispatcher.Setup(dispatcher => dispatcher.ListDue(It.IsAny<DateTimeOffset>())).Returns((DateTimeOffset now) => _store.ListDue(now));
         }
 
-        return new DeletionExecutionService(_dispatcher.Object, new DeletionExecutionBoundary(), _guards.Object, _store, _libraryManager.Object, _logger, () => _configuration);
+        return new DeletionExecutionService(_dispatcher.Object, new DeletionExecutionBoundary(), _guards.Object, _store, _libraryManager.Object, _logger, () => _configuration, arr);
     }
 
     private void VerifyNothingDeleted()

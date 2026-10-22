@@ -15,6 +15,7 @@ public sealed class DeletionExecutionService
     private readonly IDeletionGuardProvider _guards;
     private readonly DeletionRequestStore _store;
     private readonly ILibraryManager _libraryManager;
+    private readonly IArrUnmonitorService _arr;
     private readonly Logger _logger;
     private readonly Func<PluginConfiguration?> _configuration;
     private readonly SemaphoreSlim _executionLock = new(1, 1);
@@ -25,8 +26,9 @@ public sealed class DeletionExecutionService
         IDeletionGuardProvider guards,
         DeletionRequestStore store,
         ILibraryManager libraryManager,
+        IArrUnmonitorService arr,
         Logger logger)
-        : this(dispatcher, boundary, guards, store, libraryManager, logger, () => Plugin.Instance?.Configuration)
+        : this(dispatcher, boundary, guards, store, libraryManager, logger, () => Plugin.Instance?.Configuration, arr)
     {
     }
 
@@ -37,8 +39,10 @@ public sealed class DeletionExecutionService
         DeletionRequestStore store,
         ILibraryManager libraryManager,
         Logger logger,
-        Func<PluginConfiguration?> configuration)
+        Func<PluginConfiguration?> configuration,
+        IArrUnmonitorService? arr = null)
     {
+        _arr = arr ?? NoArrUnmonitorService.Instance;
         _configuration = configuration;
         _dispatcher = dispatcher;
         _boundary = boundary;
@@ -60,7 +64,7 @@ public sealed class DeletionExecutionService
                 if (_configuration()?.DeletionExecutionEnabled != true) break;
                 try
                 {
-                    ExecuteOne(request, now);
+                    await ExecuteOneAsync(request, now, cancellationToken).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -74,7 +78,7 @@ public sealed class DeletionExecutionService
         }
     }
 
-    private void ExecuteOne(Model.DeletionRequest snapshot, DateTimeOffset now)
+    private async Task ExecuteOneAsync(Model.DeletionRequest snapshot, DateTimeOffset now, CancellationToken cancellationToken)
     {
         var request = _store.Get(snapshot.Id);
         if (request?.Status != Model.DeletionRequestStatus.Approved || !request.ExecuteAt.HasValue || request.ExecuteAt > now) return;
@@ -147,6 +151,23 @@ public sealed class DeletionExecutionService
         // Scope queries can take time. A newly saved configuration must still
         // stop this operation, even if the configuration object was replaced.
         if (_configuration()?.DeletionExecutionEnabled != true) return;
+
+        // Unmonitor first and fail closed: deleting files while Sonarr/Radarr still monitor them
+        // would make them download the media again.
+        try
+        {
+            await _arr.UnmonitorAsync(item, scope, configuration, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _store.Requeue(request.Id, now.Add(PlaybackRetryDelay), now, "Sonarr/Radarr could not be updated, so nothing was deleted. Check the connection settings.");
+            _logger.Error($"[Deletion] Request {request.Id} not deleted, unmonitor failed: {ex.GetType().Name}: {ex.Message}");
+            return;
+        }
 
         try
         {
