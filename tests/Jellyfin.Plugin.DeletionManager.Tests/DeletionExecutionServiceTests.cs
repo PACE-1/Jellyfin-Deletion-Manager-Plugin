@@ -57,15 +57,48 @@ public sealed class DeletionExecutionServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task FavoriteManualRequestIsRequeuedAndNotDeleted()
+    public async Task FavoriteRequestIsHeldForAdminAndNotDeleted()
     {
         var request = CreateDue();
         _guards.Setup(guards => guards.GetGuards(It.IsAny<BaseItem>())).Returns(new DeletionGuardContext(false, true, true));
 
         await Service().ExecuteDueAsync(Now, CancellationToken.None);
 
-        Assert.Equal(DeletionRequestStatus.Approved, _store.Get(request.Id)!.Status);
-        Assert.True(_store.Get(request.Id)!.ExecuteAt > Now);
+        var stored = _store.Get(request.Id)!;
+        Assert.Equal(DeletionRequestStatus.Approved, stored.Status);
+        Assert.Equal(DeletionRequest.FavoriteAwaiting, stored.FavoriteDecision);
+        Assert.Null(stored.ExecuteAt);
+        VerifyNothingDeleted();
+
+        await Service().ExecuteDueAsync(Now.AddDays(1), CancellationToken.None);
+        VerifyNothingDeleted();
+    }
+
+    [Fact]
+    public async Task FavoriteRequestIsDeletedAfterAdminAllowsIt()
+    {
+        var request = CreateDue();
+        _guards.Setup(guards => guards.GetGuards(It.IsAny<BaseItem>())).Returns(new DeletionGuardContext(false, true, true));
+        await Service().ExecuteDueAsync(Now, CancellationToken.None);
+
+        _store.AllowFavorite(request.Id, Now, Guid.NewGuid());
+        await Service().ExecuteDueAsync(Now, CancellationToken.None);
+
+        Assert.Equal(DeletionRequestStatus.Executed, _store.Get(request.Id)!.Status);
+        _libraryManager.Verify(library => library.DeleteItem(It.Is<BaseItem>(item => item.Id == request.JellyfinItemId), It.IsAny<DeleteOptions>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task FavoriteRequestIsClosedWhenAdminKeepsTheItem()
+    {
+        var request = CreateDue();
+        _guards.Setup(guards => guards.GetGuards(It.IsAny<BaseItem>())).Returns(new DeletionGuardContext(false, true, true));
+        await Service().ExecuteDueAsync(Now, CancellationToken.None);
+
+        _store.KeepFavorite(request.Id, Now, Guid.NewGuid(), "Kept");
+        await Service().ExecuteDueAsync(Now.AddDays(1), CancellationToken.None);
+
+        Assert.Equal(DeletionRequestStatus.Cancelled, _store.Get(request.Id)!.Status);
         VerifyNothingDeleted();
     }
 
@@ -137,22 +170,11 @@ public sealed class DeletionExecutionServiceTests : IDisposable
             .Returns(new DeletionGuardContext(false, false, true))
             .Returns(new DeletionGuardContext(playback, !playback, true));
         await Service().ExecuteDueAsync(Now, CancellationToken.None);
-        Assert.Equal(DeletionRequestStatus.Approved, _store.Get(request.Id)!.Status);
-        Assert.True(_store.Get(request.Id)!.ExecuteAt > Now);
+        var stored = _store.Get(request.Id)!;
+        Assert.Equal(DeletionRequestStatus.Approved, stored.Status);
+        if (playback) Assert.True(stored.ExecuteAt > Now);
+        else Assert.Equal(DeletionRequest.FavoriteAwaiting, stored.FavoriteDecision);
         VerifyNothingDeleted();
-    }
-
-    [Fact]
-    public async Task RemovedFavoriteAllowsTheExistingApprovalToRunOnRetry()
-    {
-        var request = CreateDue();
-        _guards.Setup(g => g.GetGuards(It.IsAny<BaseItem>())).Returns(new DeletionGuardContext(false, true, true));
-        await Service().ExecuteDueAsync(Now, CancellationToken.None);
-        var next = _store.Get(request.Id)!.ExecuteAt!.Value;
-        _guards.Setup(g => g.GetGuards(It.IsAny<BaseItem>())).Returns(new DeletionGuardContext(false, false, true));
-        await Service().ExecuteDueAsync(next, CancellationToken.None);
-        Assert.Equal(DeletionRequestStatus.Executed, _store.Get(request.Id)!.Status);
-        _libraryManager.Verify(l => l.DeleteItem(It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()), Times.Once);
     }
 
     [Fact]

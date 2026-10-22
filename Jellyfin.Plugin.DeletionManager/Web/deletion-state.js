@@ -40,6 +40,7 @@
         Pending: { label: 'Pending', className: 'jdm-badge-neutral' },
         Approved: { label: 'Approved', className: 'jdm-badge-accent' },
         Requeued: { label: 'Requeued', className: 'jdm-badge-warning' },
+        FavoriteReview: { label: 'Favorited: decide', className: 'jdm-badge-warning' },
         Blocked: { label: 'Blocked', className: 'jdm-badge-warning' },
         Denied: { label: 'Denied', className: 'jdm-badge-destructive jdm-badge-muted' },
         Executed: { label: 'Executed', className: 'jdm-badge-success' },
@@ -141,12 +142,14 @@
     const approve = (id, timingKey) => post(`/${id}/approve`, { timing: timingKey });
     const deny = (id, reason) => post(`/${id}/deny`, { reason });
     const cancel = (id, reason) => post(`/${id}/cancel`, { reason });
+    const allowFavorite = (id) => post(`/${id}/favorite/allow`, {});
+    const keepFavorite = (id) => post(`/${id}/favorite/keep`, {});
     const bulkApprove = (ids, timingKey) => post('/bulk/approve', { ids, timing: timingKey });
     const bulkDeny = (ids, reason) => post('/bulk/deny', { ids, reason });
 
     const cardStatus = () => request(freshPath('/DeletionManager/Requests/card-status'));
     const config = () => request(freshPath('/DeletionManager/Config'));
-    const api = { list, get, audit, scope, submit, approve, deny, cancel, bulkApprove, bulkDeny, cardStatus, config };
+    const api = { list, get, audit, scope, submit, approve, deny, cancel, allowFavorite, keepFavorite, bulkApprove, bulkDeny, cardStatus, config };
 
     // ============================================================
     // Admin gate (UX only — server re-checks every mutation)
@@ -198,9 +201,10 @@
 
     /**
      * @param {object} request A DeletionRequest, PascalCase fields.
-     * @returns {'Pending'|'Approved'|'Requeued'|'Blocked'|'Denied'|'Executed'|'Failed'|'Cancelled'}
+     * @returns {'Pending'|'Approved'|'Requeued'|'FavoriteReview'|'Blocked'|'Denied'|'Executed'|'Failed'|'Cancelled'}
      */
     function displayStatus(request) {
+        if (request && request.Status === 'Approved' && request.FavoriteDecision === 'awaiting') return 'FavoriteReview';
         if (request && request.Status === 'Approved' && typeof request.FailureReason === 'string' && request.FailureReason.length > 0) {
             return 'Requeued';
         }

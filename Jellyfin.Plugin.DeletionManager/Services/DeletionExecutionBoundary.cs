@@ -9,7 +9,8 @@ public enum DeletionExecutionDisposition
     NotDue,
     Ready,
     Requeue,
-    Blocked
+    Blocked,
+    AwaitingFavoriteDecision
 }
 
 public sealed record DeletionGuardContext(bool IsPlaying, bool IsFavorite, bool FavoriteProtectionEnabled);
@@ -41,9 +42,9 @@ public sealed class DeletionExecutionBoundary : IDeletionExecutor
         }
 
         // Favorite protection applies to every request source, as the "Protect favorites" setting promises.
-        if (guards.IsFavorite && guards.FavoriteProtectionEnabled)
+        if (guards.IsFavorite && guards.FavoriteProtectionEnabled && request.FavoriteDecision != DeletionRequest.FavoriteAllowed)
         {
-            return new(DeletionExecutionDisposition.Requeue, "An affected item is favorited. Deletion will be retried while favorite protection is enabled.");
+            return new(DeletionExecutionDisposition.AwaitingFavoriteDecision, "An affected item is favorited. An admin must confirm that it should be deleted.");
         }
 
         return new(DeletionExecutionDisposition.Ready, "The request passed the execution boundary.");

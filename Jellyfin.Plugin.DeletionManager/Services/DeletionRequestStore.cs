@@ -179,6 +179,59 @@ public sealed class DeletionRequestStore
         UpdateExecution(id, "requeued", occurredAt, nextAttemptAt, reason);
     }
 
+    // Favorited items are never deleted on a schedule alone: the request leaves the schedule until an admin decides.
+    public void HoldForFavorite(long id, DateTimeOffset occurredAt, string reason)
+    {
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "UPDATE deletion_requests SET favorite_decision = $awaiting, execute_at = NULL, failure_reason = $reason WHERE id = $id AND status = $approved AND executed_at IS NULL";
+        command.Parameters.AddWithValue("$awaiting", DeletionRequest.FavoriteAwaiting);
+        command.Parameters.AddWithValue("$reason", reason);
+        command.Parameters.AddWithValue("$id", id);
+        command.Parameters.AddWithValue("$approved", DeletionRequestStatus.Approved.ToString().ToLowerInvariant());
+        if (command.ExecuteNonQuery() != 1) throw new InvalidOperationException("Request is missing or is no longer approved.");
+        InsertAudit(connection, transaction, id, "favorite_held", reason, occurredAt);
+        transaction.Commit();
+    }
+
+    /// <summary>Admin confirms deleting the favorited item: the request is due again and the favorite guard stays satisfied for it.</summary>
+    public void AllowFavorite(long id, DateTimeOffset occurredAt, Guid actorId)
+    {
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "UPDATE deletion_requests SET favorite_decision = $allowed, execute_at = $now, failure_reason = NULL WHERE id = $id AND status = $approved AND favorite_decision = $awaiting";
+        command.Parameters.AddWithValue("$allowed", DeletionRequest.FavoriteAllowed);
+        command.Parameters.AddWithValue("$awaiting", DeletionRequest.FavoriteAwaiting);
+        command.Parameters.AddWithValue("$now", occurredAt.ToUniversalTime().ToString("O"));
+        command.Parameters.AddWithValue("$id", id);
+        command.Parameters.AddWithValue("$approved", DeletionRequestStatus.Approved.ToString().ToLowerInvariant());
+        if (command.ExecuteNonQuery() != 1) throw new InvalidOperationException("Request is missing or is not waiting for a favorite decision.");
+        InsertAudit(connection, transaction, id, "favorite_allowed", "Admin confirmed deleting the favorited item.", occurredAt, actorId);
+        transaction.Commit();
+    }
+
+    /// <summary>Admin keeps the favorited item: the request is closed without deleting anything.</summary>
+    public void KeepFavorite(long id, DateTimeOffset occurredAt, Guid actorId, string reason)
+    {
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+        using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "UPDATE deletion_requests SET status = $cancelled, failure_reason = $reason WHERE id = $id AND status = $approved AND favorite_decision = $awaiting";
+        command.Parameters.AddWithValue("$cancelled", DeletionRequestStatus.Cancelled.ToString().ToLowerInvariant());
+        command.Parameters.AddWithValue("$reason", reason);
+        command.Parameters.AddWithValue("$awaiting", DeletionRequest.FavoriteAwaiting);
+        command.Parameters.AddWithValue("$id", id);
+        command.Parameters.AddWithValue("$approved", DeletionRequestStatus.Approved.ToString().ToLowerInvariant());
+        if (command.ExecuteNonQuery() != 1) throw new InvalidOperationException("Request is missing or is not waiting for a favorite decision.");
+        InsertAudit(connection, transaction, id, "cancelled", reason, occurredAt, actorId);
+        transaction.Commit();
+    }
+
     public void Cancel(long id, DateTimeOffset occurredAt, string reason, Guid? actorId = null)
     {
         using var connection = Open();
@@ -347,6 +400,7 @@ public sealed class DeletionRequestStore
             FailureReason = ReadNullableString(reader, "failure_reason"),
             RequesterReason = ReadNullableString(reader, "requester_reason"),
             ScopeFingerprint = ReadNullableString(reader, "scope_fingerprint"),
+            FavoriteDecision = ReadNullableString(reader, "favorite_decision"),
             CreatedAt = DateTimeOffset.Parse(reader.GetString(reader.GetOrdinal("created_at")))
         };
     }
@@ -396,6 +450,17 @@ public sealed class DeletionRequestStore
             CREATE INDEX IF NOT EXISTS ix_deletion_audit_request ON deletion_audit(request_id, occurred_at);
             """;
         command.ExecuteNonQuery();
+
+        using (var check = connection.CreateCommand())
+        {
+            check.CommandText = "SELECT COUNT(*) FROM pragma_table_info('deletion_requests') WHERE name = 'favorite_decision'";
+            if ((long)check.ExecuteScalar()! == 0)
+            {
+                using var alter = connection.CreateCommand();
+                alter.CommandText = "ALTER TABLE deletion_requests ADD COLUMN favorite_decision TEXT NULL";
+                alter.ExecuteNonQuery();
+            }
+        }
 
         using (var check = connection.CreateCommand())
         {

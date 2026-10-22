@@ -188,7 +188,16 @@ public sealed class DeletionSafetyRegressionTests : IDisposable
             .ExecuteDueAsync(_now, CancellationToken.None);
         var saved = _store.Get(request.Id)!;
         Assert.Equal(DeletionRequestStatus.Approved, saved.Status);
-        Assert.True(saved.ExecuteAt > _now);
+        if (favorite)
+        {
+            // Favorites wait for an admin decision instead of retrying on a timer.
+            Assert.Equal(DeletionRequest.FavoriteAwaiting, saved.FavoriteDecision);
+            Assert.Null(saved.ExecuteAt);
+        }
+        else
+        {
+            Assert.True(saved.ExecuteAt > _now);
+        }
         _library.Verify(value => value.DeleteItem(It.IsAny<BaseItem>(), It.IsAny<DeleteOptions>()), Times.Never);
     }
 

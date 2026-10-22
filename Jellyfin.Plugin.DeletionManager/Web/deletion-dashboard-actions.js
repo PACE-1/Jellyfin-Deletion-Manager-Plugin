@@ -272,6 +272,69 @@
         return true;
     }
 
+    /**
+     * True when a favorited item is waiting for an admin to say delete or keep.
+     * @param {object} request
+     * @returns {boolean}
+     */
+    function awaitsFavoriteDecision(request) {
+        return !!request && request.Status === 'Approved' && request.FavoriteDecision === 'awaiting';
+    }
+
+    /**
+     * Confirms deleting a favorited item; on yes the request re-enters the pipeline and runs on the next pass.
+     * @param {object} request
+     * @returns {Promise<boolean>}
+     */
+    async function allowFavoriteDeletion(request) {
+        if (!request) return false;
+        const confirmed = await D.confirmDialog({
+            title: 'Delete Favorited Item',
+            message: `"${request.ItemName}" is a favorite. Delete it anyway? The files are removed and Sonarr/Radarr stop downloading it.`,
+            confirmText: 'Delete Anyway',
+            cancelText: 'Not Now',
+            destructive: true,
+        });
+        if (!confirmed) return false;
+        try {
+            await D.api.allowFavorite(request.Id);
+        } catch (error) {
+            actionError(error);
+            return false;
+        }
+        D.toast(`Queued for deletion: ${request.ItemName}`);
+        announceResult(`Queued for deletion: ${request.ItemName}`);
+        await afterAction();
+        return true;
+    }
+
+    /**
+     * Keeps a favorited item: the request is closed and nothing is deleted.
+     * @param {object} request
+     * @returns {Promise<boolean>}
+     */
+    async function keepFavoriteItem(request) {
+        if (!request) return false;
+        const confirmed = await D.confirmDialog({
+            title: 'Keep Favorited Item',
+            message: `Keep "${request.ItemName}"? The request is closed and nothing is deleted.`,
+            confirmText: 'Keep Item',
+            cancelText: 'Not Now',
+            destructive: false,
+        });
+        if (!confirmed) return false;
+        try {
+            await D.api.keepFavorite(request.Id);
+        } catch (error) {
+            actionError(error);
+            return false;
+        }
+        D.toast(`Kept: ${request.ItemName}`);
+        announceResult(`Kept: ${request.ItemName}`);
+        await afterAction();
+        return true;
+    }
+
     // ============================================================
     // Timing chips + deny button (shared by cards and drawer)
     // ============================================================
@@ -356,6 +419,7 @@
         Failed: 'Failure reason',
         Blocked: 'Blocked reason',
         Requeued: 'Requeue reason',
+        FavoriteReview: 'Waiting for your decision',
         Cancelled: 'Cancellation note',
     };
 
@@ -364,6 +428,8 @@
         failed: 'Failed',
         requeued: 'Skipped (item in playback), requeued',
         blocked: 'Blocked (favorite protected)',
+        favorite_held: 'Favorited, waiting for an admin decision',
+        favorite_allowed: 'Admin confirmed deleting the favorited item',
         cancelled: 'Cancelled',
     };
 
@@ -512,6 +578,27 @@
             const denyRow = D.makeText('div', '', 'jdm-drawer-row');
             denyRow.appendChild(buildDenyButton(request, lock, onDone, false));
             wrap.appendChild(denyRow);
+            return wrap;
+        }
+
+        if (awaitsFavoriteDecision(request)) {
+            const wrap = document.createElement('div');
+            wrap.appendChild(sectionHeading('Favorited item: your decision'));
+            const makeButton = (text, destructive, action) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = `raised emby-button jdm-chip${destructive ? ' jdm-destructive-text' : ''}`;
+                button.textContent = text;
+                button.addEventListener('click', async (event) => {
+                    event.stopPropagation();
+                    const ok = await lock.run(() => action(request));
+                    onDone(!!ok);
+                });
+                lock.add(button);
+                wrap.appendChild(button);
+            };
+            makeButton('Delete Anyway', true, allowFavoriteDeletion);
+            makeButton('Keep Item', false, keepFavoriteItem);
             return wrap;
         }
 
@@ -672,6 +759,10 @@
                 });
             });
             items.push({ icon: 'block', text: 'Deny request', onSelect: () => denyRequest(request) });
+        }
+        if (isAdmin && awaitsFavoriteDecision(request)) {
+            items.push({ icon: 'delete_forever', text: 'Delete favorited item', destructive: true, onSelect: () => allowFavoriteDeletion(request) });
+            items.push({ icon: 'favorite', text: 'Keep item, close request', onSelect: () => keepFavoriteItem(request) });
         }
         if (isAdmin && isCancellable(request)) {
             items.push({ icon: 'cancel', text: 'Cancel request', onSelect: () => cancelRequest(request) });
@@ -878,6 +969,6 @@
         hostEl.appendChild(bar);
     }
 
-    Object.assign(D, { approveRequest, denyRequest, cancelRequest, renderQuickActions, openDrawer, openRequestMenu, renderBulkBar });
+    Object.assign(D, { approveRequest, denyRequest, cancelRequest, allowFavoriteDeletion, keepFavoriteItem, renderQuickActions, openDrawer, openRequestMenu, renderBulkBar });
 
 })();

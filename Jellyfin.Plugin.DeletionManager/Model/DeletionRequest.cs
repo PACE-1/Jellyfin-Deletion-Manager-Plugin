@@ -26,6 +26,9 @@ public enum DeletionTiming
 
 public sealed record DeletionRequest
 {
+    public const string FavoriteAwaiting = "awaiting";
+    public const string FavoriteAllowed = "allowed";
+
     public long Id { get; init; }
     public Guid JellyfinItemId { get; init; }
     public string ItemName { get; init; } = string.Empty;
@@ -43,6 +46,8 @@ public sealed record DeletionRequest
     public string? FailureReason { get; init; }
     public string? RequesterReason { get; init; }
     public string? ScopeFingerprint { get; init; }
+    /// <summary>Null normally; "awaiting" while an admin must confirm deleting a favorited item; "allowed" once confirmed.</summary>
+    public string? FavoriteDecision { get; init; }
     public DateTimeOffset CreatedAt { get; init; }
 }
 

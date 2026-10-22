@@ -113,6 +113,9 @@ public sealed class DeletionExecutionService
             case DeletionExecutionDisposition.Requeue:
                 _store.Requeue(request.Id, now.Add(PlaybackRetryDelay), now, decision.Reason);
                 return;
+            case DeletionExecutionDisposition.AwaitingFavoriteDecision:
+                _store.HoldForFavorite(request.Id, now, decision.Reason);
+                return;
             case DeletionExecutionDisposition.Blocked:
                 _store.MarkBlocked(request.Id, now, decision.Reason);
                 return;
@@ -146,9 +149,9 @@ public sealed class DeletionExecutionService
         }
         configuration = _configuration();
         if (configuration?.DeletionExecutionEnabled != true) return;
-        if (guards.IsFavorite && configuration.DeletionFavoriteProtectionEnabled)
+        if (guards.IsFavorite && configuration.DeletionFavoriteProtectionEnabled && current.FavoriteDecision != Model.DeletionRequest.FavoriteAllowed)
         {
-            _store.Requeue(request.Id, now.Add(PlaybackRetryDelay), now, "An affected item is favorited. Deletion will be retried while favorite protection is enabled.");
+            _store.HoldForFavorite(request.Id, now, "An affected item is favorited. An admin must confirm that it should be deleted.");
             return;
         }
 

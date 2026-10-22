@@ -313,6 +313,22 @@ public sealed class DeletionRequestController : ControllerBase
         return true;
     }
 
+    /// <summary>Admin confirms that a favorited item may be deleted; the request goes back into the pipeline.</summary>
+    [HttpPost("{id:long}/favorite/allow")]
+    public ActionResult<DeletionRequest> AllowFavorite(long id)
+    {
+        if (!TryGetCurrentUser(out var adminId, out _) || !IsAdmin(adminId)) return Forbid();
+        return Decide(id, () => _store.AllowFavorite(id, DateTimeOffset.UtcNow, adminId));
+    }
+
+    /// <summary>Admin keeps a favorited item; the request is closed without deleting.</summary>
+    [HttpPost("{id:long}/favorite/keep")]
+    public ActionResult<DeletionRequest> KeepFavorite(long id)
+    {
+        if (!TryGetCurrentUser(out var adminId, out var adminName) || !IsAdmin(adminId)) return Forbid();
+        return Decide(id, () => _store.KeepFavorite(id, DateTimeOffset.UtcNow, adminId, "Kept by " + adminName + ": the item is favorited."));
+    }
+
     [HttpPost("{id:long}/cancel")]
     public ActionResult<DeletionRequest> Cancel(long id, [FromBody] CancelRequest? body)
     {

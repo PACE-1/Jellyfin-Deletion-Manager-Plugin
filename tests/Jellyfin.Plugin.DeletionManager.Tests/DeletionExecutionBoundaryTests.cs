@@ -41,19 +41,29 @@ public sealed class DeletionExecutionBoundaryTests
     }
 
     [Fact]
-    public void FavoriteRuleRequestIsRequeuedWhenProtectionIsEnabled()
+    public void FavoriteRuleRequestWaitsForAdminDecisionWhenProtectionIsEnabled()
     {
         var decision = _boundary.Evaluate(Request(DeletionRequestStatus.Approved, Now, source: "rule"), Now, Guards(isFavorite: true));
 
-        Assert.Equal(DeletionExecutionDisposition.Requeue, decision.Disposition);
+        Assert.Equal(DeletionExecutionDisposition.AwaitingFavoriteDecision, decision.Disposition);
     }
 
     [Fact]
-    public void FavoriteManualRequestIsRequeuedWhenProtectionIsEnabled()
+    public void FavoriteManualRequestWaitsForAdminDecisionWhenProtectionIsEnabled()
     {
         var decision = _boundary.Evaluate(Request(DeletionRequestStatus.Approved, Now, source: "jellyfin"), Now, Guards(isFavorite: true));
 
-        Assert.Equal(DeletionExecutionDisposition.Requeue, decision.Disposition);
+        Assert.Equal(DeletionExecutionDisposition.AwaitingFavoriteDecision, decision.Disposition);
+    }
+
+    [Fact]
+    public void FavoriteRequestProceedsOnceAdminAllowedIt()
+    {
+        var request = Request(DeletionRequestStatus.Approved, Now, source: "jellyfin") with { FavoriteDecision = DeletionRequest.FavoriteAllowed };
+
+        var decision = _boundary.Evaluate(request, Now, Guards(isFavorite: true));
+
+        Assert.Equal(DeletionExecutionDisposition.Ready, decision.Disposition);
     }
 
     [Fact]
