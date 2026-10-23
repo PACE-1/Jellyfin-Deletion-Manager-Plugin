@@ -60,7 +60,7 @@
         };
         // Executed items are gone from Jellyfin, so fall back to the poster kept at deletion time.
         D.loadFirstImage(
-            [D.posterUrl(request.JellyfinItemId, 400), D.archivedPosterUrl(request.Id)],
+            [D.posterUrl(request.JellyfinItemId, 400), D.archivedPosterSource(request.Id)],
             (url) => { posterButton.style.backgroundImage = `url("${url}")`; },
             showFallbackIcon);
 

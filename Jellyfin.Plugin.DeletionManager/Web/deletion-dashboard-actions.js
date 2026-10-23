@@ -453,7 +453,7 @@
             const img = document.createElement('img');
             img.alt = request.ItemName || '';
             D.loadFirstImage(
-                [D.posterUrl(request.JellyfinItemId, 300), D.archivedPosterUrl(request.Id)],
+                [D.posterUrl(request.JellyfinItemId, 300), D.archivedPosterSource(request.Id)],
                 (url) => { img.src = url; },
                 () => { img.style.display = 'none'; });
             header.appendChild(img);
