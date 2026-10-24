@@ -88,6 +88,7 @@
         mountTimer: null,
         pendingDrawerId: null,
         refreshing: false,
+        lastSignature: null,
     };
 
     // ============================================================
@@ -380,11 +381,18 @@
         try {
             const [requests] = await Promise.all([D.api.list(), refreshExecutionFlag()]);
             if (identity !== D.identityToken()) return;
+            // Unchanged data: skip the rebuild so polls do not flash the grid. The
+            // minute bucket still refreshes relative times ("Requested 5m ago").
+            const signature = `${Math.floor(Date.now() / 60000)}|${D.state.isAdmin}|${D.state.executionEnabled}|${JSON.stringify(requests)}`;
+            const unchanged = signature === pageState.lastSignature && !D.state.loadError;
+            pageState.lastSignature = signature;
             D.state.requests = requests;
             D.state.loadError = null;
+            if (unchanged) return;
         } catch (error) {
             if (identity !== D.identityToken()) return;
             D.state.loadError = error;
+            pageState.lastSignature = null;
         } finally {
             if (identity === D.identityToken()) pageState.refreshing = false;
         }

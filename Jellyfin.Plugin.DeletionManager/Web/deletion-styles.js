@@ -85,10 +85,21 @@
            this only sizes the box on wide screens (small screens get
            jellyfin-web's own full-screen dialog-fullscreen-lowres). */
         body.jdm-modal-is-open { overflow: hidden; }
+        .jdm-modal {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .jdm-dialog:not(.jdm-dialog-drawer) {
+            position: relative;
+            inset: auto;
+            margin: 0;
+        }
         .jdm-dialog {
-            width: 36em;
-            max-width: 94vw;
-            max-height: 90vh;
+            width: 28em;
+            max-width: 92vw;
+            max-height: 85vh;
+            border-radius: 0.5em;
         }
         .jdm-dialog-drawer { width: 44em; }
         .jdm-dialog .formDialogContent { overflow-y: auto; overscroll-behavior: contain; }
@@ -286,6 +297,22 @@
             flex: 0 0 auto;
             white-space: nowrap;
             min-height: 2.75rem;
+            padding: 0 var(--jdm-space-md);
+            margin: 0;
+            background: transparent;
+            color: var(--jdm-text-secondary);
+            border: 0;
+            border-bottom: 2px solid transparent;
+            border-radius: 0;
+            font: inherit;
+            font-weight: 600;
+            cursor: pointer;
+            transition: color 0.15s, background-color 0.15s, border-color 0.15s;
+        }
+        .jdm-tab-button:hover { color: inherit; background: rgba(255, 255, 255, 0.08); }
+        .jdm-tab-button.emby-tab-button-active {
+            color: inherit;
+            border-bottom-color: var(--jdm-accent);
         }
 
         /* ---------- Toolbar ---------- */
@@ -314,7 +341,21 @@
             min-width: 0;
         }
         .jdm-filter-label { font-size: 0.8em; color: var(--jdm-text-secondary); }
-        .jdm-filter select { max-width: 100%; padding: 0.4em 0.5em; font: inherit; }
+        .jdm-filter select {
+            max-width: 100%;
+            padding: 0.5em 0.75em;
+            font: inherit;
+            color: inherit;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--jf-palette-divider, hsla(0, 0%, 100%, 0.12));
+            border-radius: 0.5em;
+        }
+        .jdm-filter select option { color: initial; }
+        .jdm-search-input {
+            padding: 0.6em 0.9em;
+            font: inherit;
+            border-radius: 0.5em;
+        }
 
         /* ---------- Poster card additions (deletion-cards.js) ---------- */
         /* No position override: Jellyfin's .cardContent is absolute over

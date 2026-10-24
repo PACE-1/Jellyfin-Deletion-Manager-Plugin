@@ -301,7 +301,7 @@
         if (!requestId || !token) return null;
         return async () => {
             const response = await fetch(ApiClient.getUrl(`DeletionManager/Requests/${requestId}/poster`), {
-                headers: { Authorization: `MediaBrowser Token="${token}"` },
+                headers: { Authorization: `MediaBrowser Token="${token}"`, 'X-Emby-Token': token },
             });
             if (!response.ok) throw new Error(`poster ${response.status}`);
             return URL.createObjectURL(await response.blob());

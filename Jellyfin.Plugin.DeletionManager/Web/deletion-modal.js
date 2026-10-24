@@ -153,7 +153,7 @@
         const dialog = document.createElement('div');
         dialog.className = variant === 'drawer'
             ? 'focuscontainer dialog formDialog dialog-fullscreen-lowres jdm-dialog jdm-dialog-drawer'
-            : 'focuscontainer dialog formDialog dialog-fullscreen-lowres jdm-dialog';
+            : 'focuscontainer dialog formDialog jdm-dialog';
         dialog.setAttribute('role', 'dialog');
         dialog.setAttribute('aria-modal', 'true');
         dialog.setAttribute('aria-labelledby', modalId);

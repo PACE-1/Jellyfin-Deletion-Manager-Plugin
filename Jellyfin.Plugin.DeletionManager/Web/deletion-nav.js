@@ -61,18 +61,27 @@
                 justify-content: flex-start;
                 gap: var(--jdm-space-xs, 0.25rem);
                 flex: 0 0 auto !important;
+                align-self: stretch;
                 width: auto !important;
                 min-width: max-content !important;
                 max-width: none !important;
                 height: auto !important;
-                min-height: 2.25rem;
-                padding: 0.25em 0.75em !important;
-                border-radius: 0.25em !important;
+                margin: 0 !important;
+                padding: 0 0.75em !important;
+                border-radius: 0 !important;
+                background: transparent !important;
+                color: inherit !important;
+                font: inherit;
                 overflow: visible !important;
                 white-space: nowrap;
                 line-height: 1.2;
             }
-            button.${ENTRY_CLASS}.headerButton .jdm-topbar-label { font-size: 0.9em; }
+            button.${ENTRY_CLASS}.headerButton:hover,
+            button.${ENTRY_CLASS}.headerButton:focus-visible {
+                background: rgba(255, 255, 255, 0.08) !important;
+                color: inherit !important;
+            }
+            button.${ENTRY_CLASS}.headerButton .jdm-topbar-label { font-size: 1em; }
             .${ENTRY_CLASS} .${BADGE_CLASS}[hidden],
             .${WIDGET_CLASS} .${BADGE_CLASS}[hidden] { display: none; }
             .${WIDGET_CLASS} {

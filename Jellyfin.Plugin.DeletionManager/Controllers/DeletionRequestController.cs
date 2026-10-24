@@ -54,7 +54,7 @@ public sealed class DeletionRequestController : ControllerBase
         if (!MatchesType(item, itemType)) return BadRequest(new { message = "itemType does not match the Jellyfin item." });
 
         var scope = DeletionScope.Resolve(_libraryManager, item);
-        if (!scope.Items.All(value => accessible.Contains(value.Id))) return Forbid();
+        if (!scope.Items.All(value => IsAccessible(userId, accessible, value))) return Forbid();
         var itemCount = scope.ItemCount(item);
         if (itemType is "series" or "season" && request.ExpectedItemCount is null)
         {
@@ -157,7 +157,7 @@ public sealed class DeletionRequestController : ControllerBase
         if (!MatchesType(item, type)) return BadRequest(new { message = "itemType does not match the Jellyfin item." });
 
         var scope = DeletionScope.Resolve(_libraryManager, item);
-        if (!scope.Items.All(value => accessible.Contains(value.Id))) return Forbid();
+        if (!scope.Items.All(value => IsAccessible(userId, accessible, value))) return Forbid();
         return Ok(new { itemCount = scope.ItemCount(item), itemIds = scope.EpisodeIds });
     }
 
@@ -369,6 +369,22 @@ public sealed class DeletionRequestController : ControllerBase
         "episode" => item is Episode,
         _ => false
     };
+
+    // Jellyfin's user query returns one id per PresentationUniqueKey, so a duplicate
+    // season or episode folder (two "Season 3" dirs) is missing from the set even
+    // though the user can see it. Accept it when a visible item shares its key.
+    private bool IsAccessible(Guid userId, HashSet<Guid> accessible, BaseItem item)
+    {
+        if (accessible.Contains(item.Id)) return true;
+        var key = item.PresentationUniqueKey;
+        var user = _userManager.GetUserById(userId);
+        if (user is null || string.IsNullOrEmpty(key)) return false;
+        return _libraryManager.GetItemIds(new InternalItemsQuery(user)
+        {
+            Recursive = true,
+            PresentationUniqueKey = key,
+        }).Count > 0;
+    }
 
     private HashSet<Guid> AccessibleItems(Guid userId)
     {

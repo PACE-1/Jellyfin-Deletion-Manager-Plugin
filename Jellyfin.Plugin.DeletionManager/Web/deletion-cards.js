@@ -12,6 +12,9 @@
     const JDM = window.JellyfinDeletionManager;
     const D = JDM.deletion;
 
+    /** @type {Map<*, string>} request id -> resolved poster URL */
+    const posterCache = new Map();
+
     /**
      * @param {object} request A DeletionRequest, PascalCase wire fields.
      * @param {object} [options]
@@ -59,10 +62,19 @@
             posterButton.appendChild(icon);
         };
         // Executed items are gone from Jellyfin, so fall back to the poster kept at deletion time.
-        D.loadFirstImage(
-            [D.posterUrl(request.JellyfinItemId, 400), D.archivedPosterSource(request.Id)],
-            (url) => { posterButton.style.backgroundImage = `url("${url}")`; },
-            showFallbackIcon);
+        // Polls rebuild every card; apply an already-resolved poster synchronously so it never blinks.
+        const cachedPoster = posterCache.get(request.Id);
+        if (cachedPoster) {
+            posterButton.style.backgroundImage = `url("${cachedPoster}")`;
+        } else {
+            D.loadFirstImage(
+                [D.posterUrl(request.JellyfinItemId, 400), D.archivedPosterSource(request.Id)],
+                (url) => {
+                    posterCache.set(request.Id, url);
+                    posterButton.style.backgroundImage = `url("${url}")`;
+                },
+                showFallbackIcon);
+        }
 
         const indicators = document.createElement('div');
         indicators.className = 'cardIndicators';
