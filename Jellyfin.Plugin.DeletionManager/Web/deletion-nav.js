@@ -61,17 +61,14 @@
                 justify-content: flex-start;
                 gap: var(--jdm-space-xs, 0.25rem);
                 flex: 0 0 auto !important;
-                align-self: stretch;
                 width: auto !important;
                 min-width: max-content !important;
                 max-width: none !important;
-                height: auto !important;
                 margin: 0 !important;
                 padding: 0 0.75em !important;
                 border-radius: 0 !important;
                 background: transparent !important;
                 color: inherit !important;
-                font: inherit;
                 overflow: visible !important;
                 white-space: nowrap;
                 line-height: 1.2;
@@ -192,7 +189,37 @@
             if (shows && shows.nextElementSibling !== link) {
                 shows.insertAdjacentElement('afterend', link);
             }
+            if (shows) matchSibling(link, shows);
         }
+    }
+
+    /**
+     * Copies the type and box metrics of a neighbouring header link so the entry
+     * lines up with it on any Jellyfin theme/layout. Writes only changed values
+     * (style writes would re-trigger the body mutation observer).
+     * @param {HTMLElement} link
+     * @param {HTMLElement} ref
+     */
+    function matchSibling(link, ref) {
+        const cs = getComputedStyle(ref);
+        const height = ref.offsetHeight;
+        /** @type {Record<string, string>} */
+        const wanted = {
+            fontSize: cs.fontSize,
+            fontWeight: cs.fontWeight,
+            fontFamily: cs.fontFamily,
+            letterSpacing: cs.letterSpacing,
+            textTransform: cs.textTransform,
+            lineHeight: cs.lineHeight,
+            verticalAlign: cs.verticalAlign,
+            alignSelf: 'center',
+        };
+        if (height > 0) wanted.height = `${height}px`;
+        Object.keys(wanted).forEach(key => {
+            if (link.style[key] !== wanted[key]) link.style[key] = wanted[key];
+        });
+        const label = link.querySelector('.jdm-topbar-label');
+        if (label && label.style.fontSize !== 'inherit') label.style.fontSize = 'inherit';
     }
 
     /** Visible "Shows" button/link in the page header (any layout), or null. */
